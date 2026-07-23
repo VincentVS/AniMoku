@@ -25,11 +25,43 @@ const NOISE_TOKENS = new Set([
   'vostfr'
 ]);
 
+function stripBracketedSections(value) {
+  let result = '';
+  let squareDepth = 0;
+  let roundDepth = 0;
+
+  for (const character of value) {
+    if (character === '[') {
+      squareDepth += 1;
+      continue;
+    }
+
+    if (character === ']') {
+      squareDepth = Math.max(squareDepth - 1, 0);
+      continue;
+    }
+
+    if (character === '(') {
+      roundDepth += 1;
+      continue;
+    }
+
+    if (character === ')') {
+      roundDepth = Math.max(roundDepth - 1, 0);
+      continue;
+    }
+
+    if (squareDepth === 0 && roundDepth === 0) {
+      result += character;
+    }
+  }
+
+  return result;
+}
+
 function normalizeTitle(rawTitle) {
-  return rawTitle
+  return stripBracketedSections(rawTitle)
     .replace(/[._]+/g, ' ')
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/\([^)]*\)/g, ' ')
     .split(/\s+/)
     .filter(Boolean)
     .filter((token) => !NOISE_TOKENS.has(token.toLowerCase()))
@@ -87,5 +119,6 @@ function parseAnimeFilename(filename) {
 
 module.exports = {
   parseAnimeFilename,
-  normalizeTitle
+  normalizeTitle,
+  stripBracketedSections
 };

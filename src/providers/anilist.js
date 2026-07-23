@@ -105,13 +105,21 @@ async function getEpisodesPage(id, start = 0, size = 50) {
     schedules = [];
   }
 
+  function formatAiringDate(airingAt) {
+    if (!airingAt) {
+      return buildDate(media.startDate);
+    }
+
+    return new Date(airingAt * 1000).toISOString().slice(0, 10);
+  }
+
   const episodes = [];
   const limit = Math.min(start + size, safeTotal);
   for (let number = start + 1; number <= limit; number += 1) {
     const scheduled = schedules.find((entry) => entry.episode === number);
     episodes.push({
       episodeNumber: number,
-      airDate: scheduled?.airingAt ? new Date(scheduled.airingAt * 1000).toISOString().slice(0, 10) : buildDate(media.startDate),
+      airDate: formatAiringDate(scheduled?.airingAt),
       title: `Episode ${String(number).padStart(2, '0')}`,
       summary: stripHtml(media.description || '')
     });
