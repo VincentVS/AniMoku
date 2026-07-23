@@ -83,7 +83,6 @@ async function searchMedia(search, page = 1, perPage = 5) {
 async function getEpisodesPage(id, start = 0, size = 50) {
   const media = await getMediaById(id);
   const totalEpisodes = Number(media?.episodes || 0);
-  const safeTotal = totalEpisodes > 0 ? totalEpisodes : Math.max(start + size, 1);
   const page = Math.floor(start / size) + 1;
 
   const query = `
@@ -104,6 +103,12 @@ async function getEpisodesPage(id, start = 0, size = 50) {
   } catch (error) {
     schedules = [];
   }
+
+  const maxScheduledEpisode = schedules.reduce((maxEpisode, entry) => (
+    Number(entry?.episode) > maxEpisode ? Number(entry.episode) : maxEpisode
+  ), 0);
+  const inferredTotal = Math.max(maxScheduledEpisode, start + Math.max(schedules.length, 1));
+  const safeTotal = totalEpisodes > 0 ? totalEpisodes : inferredTotal;
 
   function formatAiringDate(airingAt) {
     if (!airingAt) {

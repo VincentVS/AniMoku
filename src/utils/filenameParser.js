@@ -59,14 +59,62 @@ function stripBracketedSections(value) {
   return result;
 }
 
+function isWhitespace(character) {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f' || character === '\v';
+}
+
+function normalizeSeparators(value) {
+  let result = '';
+
+  for (const character of value) {
+    result += character === '.' || character === '_' ? ' ' : character;
+  }
+
+  return result;
+}
+
+function splitOnWhitespace(value) {
+  const tokens = [];
+  let current = '';
+
+  for (const character of value) {
+    if (isWhitespace(character)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (current) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function trimEdgeDashes(value) {
+  let start = 0;
+  let end = value.length;
+
+  while (start < end && (value[start] === '-' || isWhitespace(value[start]))) {
+    start += 1;
+  }
+
+  while (end > start && (value[end - 1] === '-' || isWhitespace(value[end - 1]))) {
+    end -= 1;
+  }
+
+  return value.slice(start, end);
+}
+
 function normalizeTitle(rawTitle) {
-  return stripBracketedSections(rawTitle)
-    .replace(/[._]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
+  return splitOnWhitespace(normalizeSeparators(stripBracketedSections(rawTitle)))
     .filter((token) => !NOISE_TOKENS.has(token.toLowerCase()))
     .join(' ')
-    .replace(/^[-\s]+|[-\s]+$/g, '')
     .trim();
 }
 
@@ -100,7 +148,7 @@ function parseAnimeFilename(filename) {
   }
 
   if (!pattern) {
-    match = working.match(/(?:^|\s|-)(\d{1,3})(?:\s|$|-)/);
+    match = working.match(/(?:^|[\s-])(\d{1,3})(?=$|[\s-])/);
     if (match) {
       episodeNumber = Number(match[1]);
       pattern = 'absolute';
@@ -109,7 +157,7 @@ function parseAnimeFilename(filename) {
   }
 
   return {
-    title: normalizeTitle(working),
+    title: trimEdgeDashes(normalizeTitle(working)),
     seasonNumber,
     episodeNumber,
     airDate,
@@ -120,5 +168,6 @@ function parseAnimeFilename(filename) {
 module.exports = {
   parseAnimeFilename,
   normalizeTitle,
-  stripBracketedSections
+  stripBracketedSections,
+  splitOnWhitespace
 };
