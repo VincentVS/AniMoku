@@ -1,0 +1,29 @@
+{
+  "name": "anime-metadata-provider-anilist",
+  "version": "1.0.0",
+  "description": "External Plex metadata provider for anime powered by AniList.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VincentVS/AnimeMetadataEngine.git"
+  },
+  "keywords": [
+    "plex",
+    "metadata",
+    "anime",
+    "anilist"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/VincentVS/AnimeMetadataEngine/issues"
+  },
+  "homepage": "https://github.com/VincentVS/AnimeMetadataEngine#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

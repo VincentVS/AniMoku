@@ -1,0 +1,33 @@
+{
+  "identifier": "tv.plex.agents.custom.anime.anilist",
+  "title": "Anime Metadata Provider (AniList)",
+  "version": "1.0.0",
+  "types": [
+    {
+      "type": 2,
+      "title": "show"
+    },
+    {
+      "type": 3,
+      "title": "season"
+    },
+    {
+      "type": 4,
+      "title": "episode"
+    }
+  ],
+  "schemes": [
+    "tv.plex.agents.custom.anime.anilist"
+  ],
+  "features": [
+    "metadata",
+    "match"
+  ],
+  "endpoints": {
+    "metadata": "/library/metadata/:id",
+    "children": "/library/metadata/:id/children",
+    "grandchildren": "/library/metadata/:id/grandchildren",
+    "images": "/library/metadata/:id/images",
+    "match": "/library/metadata/matches"
+  }
+}
