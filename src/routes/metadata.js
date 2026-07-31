@@ -2,8 +2,10 @@ const express = require('express');
 const { getMediaById } = require('../providers/anilist');
 const { mapEpisodeMetadata, mapSeasonMetadata, mapShowMetadata } = require('../utils/mapping');
 const { parseRatingKey } = require('../utils/guid');
+const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
+const providerIdentifier = providerConfig.MediaProvider?.identifier;
 
 router.get('/:id', async (req, res, next) => {
   try {
@@ -25,6 +27,9 @@ router.get('/:id', async (req, res, next) => {
 
     return res.json({
       MediaContainer: {
+        offset: 0,
+        totalSize: 1,
+        identifier: providerIdentifier,
         size: 1,
         Metadata: [metadata]
       }

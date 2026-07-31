@@ -3,8 +3,10 @@ const { getEpisodesPage } = require('../providers/anilist');
 const { mapEpisodeMetadata } = require('../utils/mapping');
 const { parseRatingKey } = require('../utils/guid');
 const { parsePaging } = require('../utils/paging');
+const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
+const providerIdentifier = providerConfig.MediaProvider?.identifier;
 
 router.get('/:id/grandchildren', async (req, res, next) => {
   try {
@@ -22,6 +24,7 @@ router.get('/:id/grandchildren', async (req, res, next) => {
         offset: start,
         size: episodes.length,
         totalSize,
+        identifier: providerIdentifier,
         Metadata: episodes.map((episode) => mapEpisodeMetadata(media, episode))
       }
     });

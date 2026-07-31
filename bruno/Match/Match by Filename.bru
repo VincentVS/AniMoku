@@ -1,0 +1,18 @@
+meta {
+  name: Match by Filename
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/library/metadata/matches
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "filename": "Fullmetal.Alchemist.Brotherhood.S01E01.mkv",
+    "manual": false
+  }
+}

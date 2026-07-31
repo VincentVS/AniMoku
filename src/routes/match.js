@@ -3,8 +3,10 @@ const { searchMedia, createMatchScore } = require('../providers/anilist');
 const { buildRatingKey, createGuid } = require('../utils/guid');
 const { parseAnimeFilename, normalizeTitle } = require('../utils/filenameParser');
 const { resolveTitle, stripHtml } = require('../utils/mapping');
+const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
+const providerIdentifier = providerConfig.MediaProvider?.identifier;
 
 router.post('/matches', async (req, res, next) => {
   try {
@@ -43,6 +45,9 @@ router.post('/matches', async (req, res, next) => {
 
     return res.json({
       MediaContainer: {
+        offset: 0,
+        totalSize: metadata.length,
+        identifier: providerIdentifier,
         size: metadata.length,
         Metadata: metadata
       }

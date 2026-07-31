@@ -62,6 +62,7 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
 
     const metadata = await originalFetch(`${baseUrl}/library/metadata/anilist-15125`).then((response) => response.json());
     assert.equal(metadata.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.anime.anilist://show/anilist-15125');
+    assert.equal(metadata.MediaContainer.identifier, 'tv.plex.agents.custom.anime.anilist');
 
     const children = await originalFetch(`${baseUrl}/library/metadata/anilist-15125/children`, {
       headers: { 'X-Plex-Container-Start': '0', 'X-Plex-Container-Size': '10' }
@@ -75,7 +76,8 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
     assert.equal(grandchildren.MediaContainer.Metadata[0].images.snapshot, 'https://img/poster.jpg#episode-1');
 
     const images = await originalFetch(`${baseUrl}/library/metadata/anilist-15125/images`).then((response) => response.json());
-    assert.equal(images.MediaContainer.Metadata[0].images.coverPoster, 'https://img/poster.jpg');
+    assert.ok(Array.isArray(images.MediaContainer.Image));
+    assert.equal(images.MediaContainer.Image[0].type, 'coverPoster');
 
     const matches = await originalFetch(`${baseUrl}/library/metadata/matches`, {
       method: 'POST',

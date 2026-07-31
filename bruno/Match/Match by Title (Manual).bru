@@ -1,0 +1,18 @@
+meta {
+  name: Match by Title (Manual)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/library/metadata/matches
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "title": "Fullmetal Alchemist Brotherhood",
+    "manual": true
+  }
+}

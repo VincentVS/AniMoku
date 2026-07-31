@@ -3,8 +3,10 @@ const { getMediaById } = require('../providers/anilist');
 const { mapSeasonMetadata } = require('../utils/mapping');
 const { parseRatingKey } = require('../utils/guid');
 const { parsePaging } = require('../utils/paging');
+const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
+const providerIdentifier = providerConfig.MediaProvider?.identifier;
 
 router.get('/:id/children', async (req, res, next) => {
   try {
@@ -24,6 +26,7 @@ router.get('/:id/children', async (req, res, next) => {
         offset: start,
         size: metadata.length,
         totalSize: allSeasons.length,
+        identifier: providerIdentifier,
         Metadata: metadata
       }
     });

@@ -34,22 +34,36 @@ function createImageSet(media, episodeNumber) {
   };
 }
 
+function createImageArray(imageSet, alt) {
+  return Object.entries(imageSet)
+    .filter(([, url]) => Boolean(url))
+    .map(([type, url]) => ({
+      type,
+      url,
+      alt
+    }));
+}
+
 function resolveTitle(media) {
   return media.title?.english || media.title?.romaji || media.title?.native || `AniList ${media.id}`;
 }
 
 function mapShowMetadata(media) {
   const ratingKey = buildRatingKey('show', media.id);
+  const imageSet = createImageSet(media);
+  const title = resolveTitle(media);
   return {
     type: 'show',
     ratingKey,
+    key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('show', ratingKey),
-    title: resolveTitle(media),
+    title,
     summary: stripHtml(media.description || ''),
     originallyAvailableAt: buildDate(media.startDate),
     year: media.startDate?.year || null,
     genres: media.genres || [],
-    images: createImageSet(media),
+    images: imageSet,
+    Image: createImageArray(imageSet, title),
     childCount: 1
   };
 }
@@ -57,10 +71,13 @@ function mapShowMetadata(media) {
 function mapSeasonMetadata(media, seasonNumber = 1) {
   const ratingKey = buildRatingKey('season', media.id, seasonNumber);
   const parentRatingKey = buildRatingKey('show', media.id);
+  const imageSet = createImageSet(media);
+  const parentTitle = resolveTitle(media);
 
   return {
     type: 'season',
     ratingKey,
+    key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('season', ratingKey),
     title: `Season ${seasonNumber}`,
     summary: stripHtml(media.description || ''),
@@ -69,33 +86,50 @@ function mapSeasonMetadata(media, seasonNumber = 1) {
     genres: media.genres || [],
     parentRatingKey,
     parentGuid: createGuid('show', parentRatingKey),
+    parentKey: `/library/metadata/${parentRatingKey}`,
+    parentType: 'show',
+    parentTitle,
     index: seasonNumber,
-    images: createImageSet(media)
+    images: imageSet,
+    Image: createImageArray(imageSet, `Season ${seasonNumber}`)
   };
 }
 
 function mapEpisodeMetadata(media, episode = {}) {
   const episodeNumber = Number(episode.episodeNumber || episode.index || 1);
+  const seasonNumber = Number(episode.parentIndex || 1);
   const ratingKey = buildRatingKey('episode', media.id, episodeNumber);
-  const seasonRatingKey = buildRatingKey('season', media.id, 1);
+  const seasonRatingKey = buildRatingKey('season', media.id, seasonNumber);
   const showRatingKey = buildRatingKey('show', media.id);
+  const imageSet = createImageSet(media, episodeNumber);
+  const showTitle = resolveTitle(media);
+  const episodeTitle = episode.title || `Episode ${String(episodeNumber).padStart(2, '0')}`;
 
   return {
     type: 'episode',
     ratingKey,
+    key: `/library/metadata/${ratingKey}`,
     guid: createGuid('episode', ratingKey),
-    title: episode.title || `Episode ${String(episodeNumber).padStart(2, '0')}`,
+    title: episodeTitle,
     summary: episode.summary || stripHtml(media.description || ''),
     originallyAvailableAt: episode.airDate || buildDate(media.startDate),
     year: episode.airDate ? Number(episode.airDate.slice(0, 4)) : media.startDate?.year || null,
     genres: media.genres || [],
     parentRatingKey: seasonRatingKey,
-    parentIndex: 1,
+    parentGuid: createGuid('season', seasonRatingKey),
+    parentKey: `/library/metadata/${seasonRatingKey}`,
+    parentType: 'season',
+    parentTitle: `Season ${seasonNumber}`,
+    parentIndex: seasonNumber,
     grandparentRatingKey: showRatingKey,
-    grandparentTitle: resolveTitle(media),
+    grandparentGuid: createGuid('show', showRatingKey),
+    grandparentKey: `/library/metadata/${showRatingKey}`,
+    grandparentType: 'show',
+    grandparentTitle: showTitle,
     index: episodeNumber,
-    duration: media.duration || null,
-    images: createImageSet(media, episodeNumber)
+    duration: media.duration ? media.duration * 60 * 1000 : null,
+    images: imageSet,
+    Image: createImageArray(imageSet, episodeTitle)
   };
 }
 
@@ -106,5 +140,6 @@ module.exports = {
   mapEpisodeMetadata,
   resolveTitle,
   stripHtml,
-  createImageSet
+  createImageSet,
+  createImageArray
 };

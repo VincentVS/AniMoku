@@ -1,0 +1,16 @@
+meta {
+  name: Children (Seasons)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/library/metadata/anilist-15125/children
+  body: none
+  auth: none
+}
+
+headers {
+  X-Plex-Container-Start: 0
+  X-Plex-Container-Size: 50
+}

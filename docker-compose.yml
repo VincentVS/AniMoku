@@ -1,6 +1,7 @@
 services:
   anime-provider:
     build: .
+    image: ${ANIME_PROVIDER_IMAGE:-anime-metadata-provider:latest}
     ports:
       - "3000:3000"
     restart: unless-stopped
