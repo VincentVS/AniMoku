@@ -41,6 +41,8 @@ Anime Metadata Provider (AniList) is an external metadata provider for Plex Medi
     paging.js
     mapping.js
     logger.js
+    cache.js
+    childData.js
 /config
   provider.json
 Dockerfile
@@ -410,12 +412,14 @@ When set, the following are merged in behind AniList's own poster/background (de
 
 | Type | Source |
 | --- | --- |
-| `coverPoster` (extra) | Fanart.tv `tvposter` |
+| `coverPoster` (extra) | Fanart.tv `tvposter`, plus `seasonposter` entries matching the requested season when the request is for a season (not the root show) |
 | `background` (extra) | Fanart.tv `showbackground` |
 | `clearLogo` | Fanart.tv `hdtvlogo` (falls back to `clearlogo`) |
 | `backgroundSquare` | The `showbackground` entry closest to a 1:1 aspect ratio, if any |
 
 Fanart.tv is indexed by **TheTVDB id**, not AniList id, so a show is looked up by first resolving its AniList id to a TVDB id via the [Fribb/anime-lists](https://github.com/Fribb/anime-lists) community id-mapping dataset (fetched once and cached in memory for the life of the process). This means coverage isn't universal: shows without a TheTVDB entry (common for niche, JP-only-distribution titles) or without any Fanart.tv-contributed art simply keep the single AniList image, exactly like today. Any failure in this path (missing key, no crosswalk match, Fanart.tv rate limit/outage) is swallowed silently and falls back to AniList-only — it never breaks the `/images` endpoint.
+
+A `GET .../images` request for a season entry (e.g. `anilist-15125-s2-a20000/images`) now also pulls Fanart.tv's `seasonposter`/`seasonthumb` entries tagged for that specific season number (or tagged `all`), ahead of the show-level `tvposter` fallback. TMDB seasons get the same treatment via its own `/tv/{id}/season/{n}/images` endpoint. Previously every season only ever received the root show's own gallery, so a franchise with dedicated per-season artwork on Fanart.tv/TMDB (e.g. Fire Force season 2) still showed the exact same poster options as season 1 in Plex's picker.
 
 The crosswalk lookup always uses the root show's own AniList id, even when requesting images for a non-root season (e.g. `anilist-15125-s2-a20000/images`). The Fribb/anime-lists dataset generally only maps a franchise's root/season-1 id to a TVDB id, so looking a later season up by its own distinct AniList id would almost always miss and silently drop its extra Fanart.tv artwork — this was previously the case and has been fixed.
 
@@ -430,6 +434,25 @@ Control verbosity with `LOG_LEVEL` (one of pino's standard levels: `trace`, `deb
 ```bash
 LOG_LEVEL=debug
 ```
+
+## Caching
+
+Plex frequently calls `metadata`/`children`/`grandchildren`/`images` back-to-back for
+the same show, and AniList's API rate-limits (and occasionally disables itself
+outright) under load. To cut down on repeat upstream calls, AniList/TMDB/Fanart.tv
+responses are cached in memory per-process for `METADATA_CACHE_TTL_SECONDS` (default
+`600`, i.e. 10 minutes):
+
+```bash
+METADATA_CACHE_TTL_SECONDS=600
+```
+
+Set it to `0` to disable caching entirely (every request always hits the upstream
+API fresh). A transient failure (network error, rate limit, non-2xx response) is
+never cached, so it doesn't get "remembered" and served back once the upstream
+provider recovers. Cached entries are per-process, in memory only — nothing to
+configure or run alongside the container, but a restart clears the cache and cache
+state is not shared across replicas if you ever run more than one instance.
 
 ## Non-anime content via TMDB
 

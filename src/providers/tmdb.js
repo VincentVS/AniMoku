@@ -1,7 +1,10 @@
 const logger = require('../utils/logger');
+const { createCache } = require('../utils/cache');
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/original';
+const showCache = createCache();
+const imagesCache = createCache();
 
 // TMDB is the fallback provider for anything AniList doesn't cover - Western
 // cartoons (Rick and Morty, etc.), Western live-action TV, and any other show
@@ -115,14 +118,18 @@ function toSeasonMediaShape(rootMedia, season) {
   };
 }
 
+// Cached: getSeasonChain/getEpisodesPage/getShowImages all funnel through this for
+// the same show id across metadata/children/grandchildren/images requests.
 async function getTvById(id) {
   if (!isConfigured()) {
     return null;
   }
 
   try {
-    const show = await tmdbFetch(`/tv/${id}`);
-    return toMediaShape(show);
+    return await showCache.wrap(`show:${id}`, async () => {
+      const show = await tmdbFetch(`/tv/${id}`);
+      return toMediaShape(show);
+    });
   } catch (error) {
     logger.warn({ id, err: error }, 'TMDB show lookup failed');
     return null;
@@ -212,19 +219,42 @@ function pickSquareBackground(backdrops = []) {
   return square ? toImageUrl(square.file_path) : null;
 }
 
+// TMDB's show-level `/images` endpoint only ever returns the root show's own
+// posters/backdrops/logos, never a given season's - season-specific art lives
+// under the separate `/tv/{id}/season/{n}/images` endpoint (posters only, no
+// backdrops/logos), so a season request needs both calls merged.
+async function getSeasonImages(id, seasonNumber) {
+  try {
+    return await imagesCache.wrap(`season-images:${id}:${seasonNumber}`, async () => {
+      const data = await tmdbFetch(`/tv/${id}/season/${seasonNumber}/images`);
+      return (data.posters || []).map((item) => toImageUrl(item.file_path)).filter(Boolean);
+    });
+  } catch (error) {
+    logger.warn({ id, seasonNumber, err: error }, 'TMDB season image lookup failed');
+    return [];
+  }
+}
+
 // Unlike AniList (one poster/banner per entry, needing Fanart.tv via a TVDB id
 // crosswalk for anything extra - see providers/fanart.js), TMDB already exposes a
 // full gallery of posters/backdrops/logos directly by its own id, no crosswalk
-// needed at all.
-async function getShowImages(id) {
+// needed at all. `seasonNumber` is only passed when the request is for a season
+// entry (not the root show or an episode) - its posters are prepended so they take
+// priority over the show-level ones in Plex's picker while still offering both.
+async function getShowImages(id, seasonNumber) {
   if (!isConfigured()) {
     return {};
   }
 
   try {
-    const data = await tmdbFetch(`/tv/${id}/images`);
+    const [data, seasonPosters] = await Promise.all([
+      imagesCache.wrap(`show-images:${id}`, () => tmdbFetch(`/tv/${id}/images`)),
+      seasonNumber ? getSeasonImages(id, seasonNumber) : Promise.resolve([])
+    ]);
+    const showPosters = (data.posters || []).map((item) => toImageUrl(item.file_path)).filter(Boolean);
+
     return {
-      posters: (data.posters || []).map((item) => toImageUrl(item.file_path)).filter(Boolean),
+      posters: [...seasonPosters, ...showPosters],
       backgrounds: (data.backdrops || []).map((item) => toImageUrl(item.file_path)).filter(Boolean),
       logos: (data.logos || []).map((item) => toImageUrl(item.file_path)).filter(Boolean),
       squareBackground: pickSquareBackground(data.backdrops)

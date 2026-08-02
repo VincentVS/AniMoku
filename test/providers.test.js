@@ -174,6 +174,70 @@ test('fanart provider falls back to clearlogo when hdtvlogo is present but empty
   }
 });
 
+test('fanart provider prefers season-specific posters over the show-level ones for a season request', async () => {
+  const originalKey = process.env.FANART_API_KEY;
+  process.env.FANART_API_KEY = 'test-key';
+
+  try {
+    const { getFanartImages } = freshModule('../src/providers/fanart');
+
+    await withMockFetch(async () => ({
+      ok: true,
+      json: async () => ({
+        tvposter: [{ url: 'https://fanart/show-poster.jpg' }],
+        seasonposter: [
+          { season: '1', url: 'https://fanart/season1-poster.jpg' },
+          { season: '2', url: 'https://fanart/season2-poster.jpg' },
+          { season: 'all', url: 'https://fanart/all-seasons-poster.jpg' }
+        ],
+        showbackground: [],
+        hdtvlogo: []
+      })
+    }), async () => {
+      const images = await getFanartImages(78788, 2);
+      assert.deepEqual(images.posters, [
+        'https://fanart/season2-poster.jpg',
+        'https://fanart/all-seasons-poster.jpg',
+        'https://fanart/show-poster.jpg'
+      ]);
+    });
+  } finally {
+    if (originalKey === undefined) {
+      delete process.env.FANART_API_KEY;
+    } else {
+      process.env.FANART_API_KEY = originalKey;
+    }
+  }
+});
+
+test('fanart provider falls back to only show-level posters when no seasonNumber is requested', async () => {
+  const originalKey = process.env.FANART_API_KEY;
+  process.env.FANART_API_KEY = 'test-key';
+
+  try {
+    const { getFanartImages } = freshModule('../src/providers/fanart');
+
+    await withMockFetch(async () => ({
+      ok: true,
+      json: async () => ({
+        tvposter: [{ url: 'https://fanart/show-poster.jpg' }],
+        seasonposter: [{ season: '1', url: 'https://fanart/season1-poster.jpg' }],
+        showbackground: [],
+        hdtvlogo: []
+      })
+    }), async () => {
+      const images = await getFanartImages(78788);
+      assert.deepEqual(images.posters, ['https://fanart/show-poster.jpg']);
+    });
+  } finally {
+    if (originalKey === undefined) {
+      delete process.env.FANART_API_KEY;
+    } else {
+      process.env.FANART_API_KEY = originalKey;
+    }
+  }
+});
+
 test('TMDB provider is a no-op without TMDB_API_KEY set', async () => {
   const originalKey = process.env.TMDB_API_KEY;
   try {
@@ -235,6 +299,58 @@ test('TMDB provider sends the v4 Read Access Token as an Authorization Bearer he
   } finally {
     if (originalKey === undefined) { delete process.env.TMDB_API_KEY; } else { process.env.TMDB_API_KEY = originalKey; }
     if (originalToken === undefined) { delete process.env.TMDB_ACCESS_TOKEN; } else { process.env.TMDB_ACCESS_TOKEN = originalToken; }
+  }
+});
+
+test('TMDB provider prepends season-specific posters ahead of the show-level gallery', async () => {
+  const originalKey = process.env.TMDB_API_KEY;
+  process.env.TMDB_API_KEY = 'test-key';
+
+  try {
+    const tmdb = freshModule('../src/providers/tmdb');
+
+    await withMockFetch(async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname.includes('/season/')) {
+        return { ok: true, json: async () => ({ posters: [{ file_path: '/season2-poster.jpg' }] }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          posters: [{ file_path: '/show-poster.jpg' }],
+          backdrops: [{ file_path: '/backdrop.jpg', width: '1920', height: '1080' }],
+          logos: [{ file_path: '/logo.png' }]
+        })
+      };
+    }, async () => {
+      const images = await tmdb.getShowImages(1668, 2);
+      assert.deepEqual(images.posters, [
+        'https://image.tmdb.org/t/p/original/season2-poster.jpg',
+        'https://image.tmdb.org/t/p/original/show-poster.jpg'
+      ]);
+      assert.equal(images.backgrounds.length, 1);
+    });
+  } finally {
+    if (originalKey === undefined) { delete process.env.TMDB_API_KEY; } else { process.env.TMDB_API_KEY = originalKey; }
+  }
+});
+
+test('TMDB provider falls back to only the show-level gallery when no seasonNumber is requested', async () => {
+  const originalKey = process.env.TMDB_API_KEY;
+  process.env.TMDB_API_KEY = 'test-key';
+
+  try {
+    const tmdb = freshModule('../src/providers/tmdb');
+
+    await withMockFetch(async () => ({
+      ok: true,
+      json: async () => ({ posters: [{ file_path: '/show-poster.jpg' }], backdrops: [], logos: [] })
+    }), async () => {
+      const images = await tmdb.getShowImages(1668);
+      assert.deepEqual(images.posters, ['https://image.tmdb.org/t/p/original/show-poster.jpg']);
+    });
+  } finally {
+    if (originalKey === undefined) { delete process.env.TMDB_API_KEY; } else { process.env.TMDB_API_KEY = originalKey; }
   }
 });
 
@@ -322,6 +438,88 @@ test('fanart provider fails closed on a non-ok response or a thrown network erro
       throw new Error('network down');
     }, async () => {
       assert.equal(await getFanartImages(78788), null);
+    });
+  } finally {
+    if (originalKey === undefined) {
+      delete process.env.FANART_API_KEY;
+    } else {
+      process.env.FANART_API_KEY = originalKey;
+    }
+  }
+});
+
+test('AniList media lookups are cached, so a repeat call for the same id does not hit the network again', async () => {
+  const { getMediaById } = freshModule('../src/providers/anilist');
+
+  let calls = 0;
+  await withMockFetch(async () => {
+    calls += 1;
+    return {
+      ok: true,
+      json: async () => ({ data: { Media: { id: 15125, title: { english: 'Fire Force' } } } })
+    };
+  }, async () => {
+    const first = await getMediaById(15125);
+    const second = await getMediaById(15125);
+
+    assert.equal(calls, 1);
+    assert.equal(first, second);
+  });
+});
+
+test('TMDB show lookups are cached, so a repeat call for the same id does not hit the network again', async () => {
+  const originalToken = process.env.TMDB_ACCESS_TOKEN;
+  process.env.TMDB_ACCESS_TOKEN = 'token';
+
+  try {
+    const { getTvById } = freshModule('../src/providers/tmdb');
+
+    let calls = 0;
+    await withMockFetch(async () => {
+      calls += 1;
+      return { ok: true, json: async () => ({ id: 88046, name: 'Fire Force' }) };
+    }, async () => {
+      const first = await getTvById(88046);
+      const second = await getTvById(88046);
+
+      assert.equal(calls, 1);
+      assert.equal(first, second);
+    });
+  } finally {
+    if (originalToken === undefined) {
+      delete process.env.TMDB_ACCESS_TOKEN;
+    } else {
+      process.env.TMDB_ACCESS_TOKEN = originalToken;
+    }
+  }
+});
+
+test('Fanart.tv lookups are cached per tvdbId, so a repeat call does not hit the network again', async () => {
+  const originalKey = process.env.FANART_API_KEY;
+  process.env.FANART_API_KEY = 'key';
+
+  try {
+    const { getFanartImages } = freshModule('../src/providers/fanart');
+
+    let calls = 0;
+    await withMockFetch(async () => {
+      calls += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          tvposter: [{ url: 'https://example.com/poster.jpg' }],
+          seasonposter: [],
+          showbackground: [],
+          hdtvlogo: [],
+          clearlogo: []
+        })
+      };
+    }, async () => {
+      const first = await getFanartImages(279700);
+      const second = await getFanartImages(279700);
+
+      assert.equal(calls, 1);
+      assert.deepEqual(first, second);
     });
   } finally {
     if (originalKey === undefined) {

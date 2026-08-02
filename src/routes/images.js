@@ -15,13 +15,15 @@ const providerIdentifier = providerConfig.MediaProvider?.identifier;
 // non-root season's own id (as this used to do) almost always misses, since the
 // Fribb/anime-lists dataset generally only maps the franchise's root/season-1 id to
 // a TVDB id, leaving season 2+ with no extra artwork even when the show has plenty.
-async function resolveGallery(provider, rootId, type) {
+async function resolveGallery(provider, rootId, type, seasonNumber) {
   if (type === 'episode') {
     return {};
   }
 
+  const seasonArg = type === 'season' ? seasonNumber : undefined;
+
   if (provider === 'tmdb') {
-    return tmdb.getShowImages(rootId);
+    return tmdb.getShowImages(rootId, seasonArg);
   }
 
   const tvdbId = await getTvdbId(rootId);
@@ -29,7 +31,7 @@ async function resolveGallery(provider, rootId, type) {
     return {};
   }
 
-  const images = await getFanartImages(tvdbId);
+  const images = await getFanartImages(tvdbId, seasonArg);
   return images || {};
 }
 
@@ -45,7 +47,7 @@ router.get('/:id/images', async (req, res, next) => {
     }
 
     const imageSet = createImageSet(media, parsed.episodeNumber);
-    const gallery = await resolveGallery(provider, parsed.rootId, parsed.type);
+    const gallery = await resolveGallery(provider, parsed.rootId, parsed.type, parsed.seasonNumber);
     const imageList = createImageArray(imageSet, resolveTitle(media), gallery);
 
     return res.json({

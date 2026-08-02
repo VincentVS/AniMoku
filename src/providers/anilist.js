@@ -1,9 +1,11 @@
 const ANILIST_URL = 'https://graphql.anilist.co';
 const logger = require('../utils/logger');
 const { buildDate, stripHtml } = require('../utils/mapping');
+const { createCache } = require('../utils/cache');
 
 const SEASON_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
 const MAX_CHAIN_HOPS = 12;
+const mediaCache = createCache();
 
 async function runQuery(query, variables = {}) {
   const response = await fetch(ANILIST_URL, {
@@ -110,17 +112,23 @@ const MEDIA_DETAIL_FIELDS = `
   }
 `;
 
+// Cached: this is called repeatedly for the same id across metadata/children/
+// grandchildren/images requests for the same Plex entry, and again for every hop
+// of resolveSeasonChain's relation walk - caching it is what actually cuts down
+// on AniList calls, since every other function here funnels through it.
 async function getMediaById(id) {
-  const query = `
-    query MediaById($id: Int!) {
-      Media(id: $id, type: ANIME) {
-        ${MEDIA_DETAIL_FIELDS}
+  return mediaCache.wrap(`media:${Number(id)}`, async () => {
+    const query = `
+      query MediaById($id: Int!) {
+        Media(id: $id, type: ANIME) {
+          ${MEDIA_DETAIL_FIELDS}
+        }
       }
-    }
-  `;
+    `;
 
-  const data = await runQuery(query, { id: Number(id) });
-  return data.Media;
+    const data = await runQuery(query, { id: Number(id) });
+    return data.Media;
+  });
 }
 
 async function searchMedia(search, page = 1, perPage = 5) {
