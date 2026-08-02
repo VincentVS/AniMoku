@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/VincentVS/AnimeMetadataEngine#readme",
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "pino": "^9.5.0"
   }
 }

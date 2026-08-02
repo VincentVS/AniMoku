@@ -11,6 +11,7 @@
 *.sln.docstates
 *.env
 .env
+docker-publish.local.md
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

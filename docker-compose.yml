@@ -5,3 +5,9 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    environment:
+      TITLE_LANGUAGE_ORDER: ${TITLE_LANGUAGE_ORDER:-english,romaji,native}
+      FANART_API_KEY: ${FANART_API_KEY:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_ACCESS_TOKEN: ${TMDB_ACCESS_TOKEN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
