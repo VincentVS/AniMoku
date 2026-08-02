@@ -1,5 +1,9 @@
 const ANILIST_URL = 'https://graphql.anilist.co';
-const { buildDate, resolveTitle, stripHtml } = require('../utils/mapping');
+const logger = require('../utils/logger');
+const { buildDate, stripHtml } = require('../utils/mapping');
+
+const SEASON_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
+const MAX_CHAIN_HOPS = 12;
 
 async function runQuery(query, variables = {}) {
   const response = await fetch(ANILIST_URL, {
@@ -12,6 +16,25 @@ async function runQuery(query, variables = {}) {
   });
 
   if (!response.ok) {
+    // AniList's Cloudflare-fronted API returns 403 (not just the more standard 429)
+    // both for per-IP rate limiting AND for whole-API outages ("temporarily disabled
+    // due to severe stability issues"), and there's no separate status page to check -
+    // the only way to tell them apart is the error message in the response body, so
+    // log it verbatim to make it obvious this isn't something wrong on our end.
+    if (response.status === 403 || response.status === 429) {
+      let body = null;
+      try {
+        body = await response.json();
+      } catch {
+        body = null;
+      }
+      logger.warn({
+        status: response.status,
+        retryAfter: response.headers.get('retry-after'),
+        rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
+        anilistMessage: body?.errors?.map((error) => error.message).join('; ') || null
+      }, 'AniList request rate-limited or unavailable');
+    }
     throw new Error(`AniList request failed with status ${response.status}`);
   }
 
@@ -23,7 +46,7 @@ async function runQuery(query, variables = {}) {
   return payload.data;
 }
 
-const MEDIA_FIELDS = `
+const SEASON_FIELDS = `
   id
   title {
     romaji
@@ -34,6 +57,8 @@ const MEDIA_FIELDS = `
   episodes
   duration
   genres
+  format
+  averageScore
   bannerImage
   coverImage {
     large
@@ -46,11 +71,50 @@ const MEDIA_FIELDS = `
   }
 `;
 
+const MEDIA_DETAIL_FIELDS = `
+  ${SEASON_FIELDS}
+  isAdult
+  studios(isMain: true) {
+    nodes {
+      name
+    }
+  }
+  characters(sort: [ROLE, RELEVANCE], perPage: 8) {
+    edges {
+      role
+      node {
+        name {
+          full
+        }
+        image {
+          large
+        }
+      }
+      voiceActors(language: JAPANESE, sort: [RELEVANCE]) {
+        name {
+          full
+        }
+        image {
+          large
+        }
+      }
+    }
+  }
+  relations {
+    edges {
+      relationType(version: 2)
+      node {
+        ${SEASON_FIELDS}
+      }
+    }
+  }
+`;
+
 async function getMediaById(id) {
   const query = `
     query MediaById($id: Int!) {
       Media(id: $id, type: ANIME) {
-        ${MEDIA_FIELDS}
+        ${MEDIA_DETAIL_FIELDS}
       }
     }
   `;
@@ -70,7 +134,7 @@ async function searchMedia(search, page = 1, perPage = 5) {
           hasNextPage
         }
         media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-          ${MEDIA_FIELDS}
+          ${SEASON_FIELDS}
         }
       }
     }
@@ -78,6 +142,56 @@ async function searchMedia(search, page = 1, perPage = 5) {
 
   const data = await runQuery(query, { search, page, perPage });
   return data.Page;
+}
+
+function isSeasonCandidate(node) {
+  return Boolean(node) && SEASON_FORMATS.has(node.format);
+}
+
+async function walkRelations(startMedia, direction, visited) {
+  let current = startMedia;
+
+  for (let hop = 0; hop < MAX_CHAIN_HOPS; hop += 1) {
+    const edges = current.relations?.edges || [];
+    const next = edges.find((edge) => edge.relationType === direction
+      && isSeasonCandidate(edge.node)
+      && !visited.has(edge.node.id));
+
+    if (!next) {
+      return;
+    }
+
+    const fullNext = await getMediaById(next.node.id);
+    if (!fullNext || visited.has(fullNext.id)) {
+      return;
+    }
+
+    visited.set(fullNext.id, fullNext);
+    current = fullNext;
+  }
+}
+
+// AniList models a franchise's seasons as separate Media entries linked via
+// PREQUEL/SEQUEL relations rather than a single entry with season sub-objects,
+// so building an accurate season list means walking that relation graph.
+async function resolveSeasonChain(rootId) {
+  const rootMedia = await getMediaById(Number(rootId));
+  if (!rootMedia) {
+    return [];
+  }
+
+  const visited = new Map([[rootMedia.id, rootMedia]]);
+  await walkRelations(rootMedia, 'PREQUEL', visited);
+  await walkRelations(rootMedia, 'SEQUEL', visited);
+
+  const chain = Array.from(visited.values());
+  chain.sort((a, b) => {
+    const aTime = (a.startDate?.year || 0) * 10000 + (a.startDate?.month || 0) * 100 + (a.startDate?.day || 0);
+    const bTime = (b.startDate?.year || 0) * 10000 + (b.startDate?.month || 0) * 100 + (b.startDate?.day || 0);
+    return aTime - bTime || a.id - b.id;
+  });
+
+  return chain;
 }
 
 async function getEpisodesPage(id, start = 0, size = 50) {
@@ -101,6 +215,7 @@ async function getEpisodesPage(id, start = 0, size = 50) {
     const data = await runQuery(query, { mediaId: Number(id), page, perPage: size });
     schedules = data.Page?.airingSchedules || [];
   } catch (error) {
+    logger.warn({ mediaId: id, err: error }, 'AniList airing schedule lookup failed, falling back to synthesized episode dates');
     schedules = [];
   }
 
@@ -137,14 +252,22 @@ async function getEpisodesPage(id, start = 0, size = 50) {
   };
 }
 
+// Score against every title AniList exposes (english/romaji/native), not just the one
+// preferred by TITLE_LANGUAGE_ORDER. Anime release filenames are frequently romaji
+// (e.g. "Enen no Shouboutai") while the default preferred title is English ("Fire
+// Force") - scoring against resolveTitle() alone means the correct entry never gets an
+// exact-match bonus in that case, letting an unrelated entry whose *resolved* title
+// happens to match the search term outrank it.
 function createMatchScore(media, term, parsed = {}) {
-  const title = resolveTitle(media).toLowerCase();
+  const titleVariants = [media.title?.english, media.title?.romaji, media.title?.native]
+    .filter(Boolean)
+    .map((title) => title.toLowerCase());
   const normalizedTerm = String(term || '').toLowerCase();
 
   let score = 60;
-  if (normalizedTerm && title === normalizedTerm) {
+  if (normalizedTerm && titleVariants.includes(normalizedTerm)) {
     score = 100;
-  } else if (normalizedTerm && title.includes(normalizedTerm)) {
+  } else if (normalizedTerm && titleVariants.some((title) => title.includes(normalizedTerm))) {
     score = 92;
   }
 
@@ -163,5 +286,6 @@ module.exports = {
   getMediaById,
   searchMedia,
   getEpisodesPage,
-  createMatchScore
+  createMatchScore,
+  resolveSeasonChain
 };
