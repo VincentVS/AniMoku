@@ -9,24 +9,44 @@ const providerConfig = require('../../config/provider.json');
 const router = express.Router();
 const providerIdentifier = providerConfig.MediaProvider?.identifier;
 
+// Extract language from Accept-Language header (e.g. "en-US" -> "en-US", "it" -> "it-IT" fallback)
+function getPreferredLanguageForTmdb(acceptLanguageHeader = '') {
+  if (!acceptLanguageHeader) {
+    return 'en-US';
+  }
+
+  const parts = acceptLanguageHeader.split(',')[0].trim().split(';')[0].trim();
+  if (!parts) {
+    return 'en-US';
+  }
+
+  // TMDB expects ISO 639-1 language code (e.g. "en", "it", "fr") or BCP 47 format (e.g. "en-US")
+  // If we got "it", map to "it-IT" for TMDB's regional variant preference
+  if (parts.length === 2) {
+    return `${parts}-${parts.toUpperCase()}`;
+  }
+
+  return parts;
+}
+
 // TMDB season/episode rating keys never carry a distinct season id (see
 // providers/tmdb.js) - a season is always resolved from its parent show plus a
 // season number, unlike AniList where each season is its own fetchable Media id.
-async function resolveSeasonMedia(provider, parsed) {
+async function resolveSeasonMedia(provider, parsed, language = 'en-US') {
   if (provider === 'tmdb') {
-    const chain = await tmdb.getSeasonChain(parsed.rootId);
+    const chain = await tmdb.getSeasonChain(parsed.rootId, language);
     return chain.find((season) => season.seasonNumber === parsed.seasonNumber) || null;
   }
 
   return getMediaById(parsed.seasonAnilistId);
 }
 
-async function resolveRootMedia(provider, seasonMedia, parsed) {
+async function resolveRootMedia(provider, seasonMedia, parsed, language = 'en-US') {
   if (parsed.seasonAnilistId === parsed.rootId && provider !== 'tmdb') {
     return seasonMedia;
   }
 
-  const rootMedia = provider === 'tmdb' ? await tmdb.getTvById(parsed.rootId) : await getMediaById(parsed.rootId);
+  const rootMedia = provider === 'tmdb' ? await tmdb.getTvById(parsed.rootId, language) : await getMediaById(parsed.rootId);
   return rootMedia || seasonMedia;
 }
 
@@ -40,10 +60,11 @@ router.get('/:id', async (req, res, next) => {
     // See plexinc/tmdb-example-provider's docs/Metadata.md: "it is expected that
     // all the child objects be returned in this array" - no pagination here.
     const includeChildren = Boolean(Number(req.query.includeChildren));
+    const language = getPreferredLanguageForTmdb(req.headers['accept-language']);
 
     let metadata;
     if (parsed.type === 'show') {
-      const media = provider === 'tmdb' ? await tmdb.getTvById(parsed.rootId) : await getMediaById(parsed.rootId);
+      const media = provider === 'tmdb' ? await tmdb.getTvById(parsed.rootId, language) : await getMediaById(parsed.rootId);
       if (!media) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
@@ -53,11 +74,11 @@ router.get('/:id', async (req, res, next) => {
         metadata.Children = { size: seasonsResult.seasons.length, Metadata: seasonsResult.seasons };
       }
     } else if (parsed.type === 'season') {
-      const media = await resolveSeasonMedia(provider, parsed);
+      const media = await resolveSeasonMedia(provider, parsed, language);
       if (!media) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
-      const rootMedia = await resolveRootMedia(provider, media, parsed);
+      const rootMedia = await resolveRootMedia(provider, media, parsed, language);
       metadata = mapSeasonMetadata(media, parsed.seasonNumber, rootMedia, provider);
       if (includeChildren) {
         const episodesResult = await getAllEpisodes(provider, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId);
@@ -66,11 +87,11 @@ router.get('/:id', async (req, res, next) => {
         }
       }
     } else {
-      const media = await resolveSeasonMedia(provider, parsed);
+      const media = await resolveSeasonMedia(provider, parsed, language);
       if (!media) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
-      const rootMedia = await resolveRootMedia(provider, media, parsed);
+      const rootMedia = await resolveRootMedia(provider, media, parsed, language);
       metadata = mapEpisodeMetadata(media, { episodeNumber: parsed.episodeNumber, parentIndex: parsed.seasonNumber }, rootMedia, provider);
     }
 

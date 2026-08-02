@@ -527,14 +527,21 @@ test('TMDB show lookups are cached, so a repeat call for the same id does not hi
     const { getTvById } = freshModule('../src/providers/tmdb');
 
     let calls = 0;
-    await withMockFetch(async () => {
+    await withMockFetch(async (url) => {
       calls += 1;
+      if (url.toString().includes('/content_ratings')) {
+        return { ok: true, json: async () => ({ results: [] }) };
+      }
       return { ok: true, json: async () => ({ id: 88046, name: 'Fire Force' }) };
     }, async () => {
       const first = await getTvById(88046);
+      const callsAfterFirst = calls;
       const second = await getTvById(88046);
 
-      assert.equal(calls, 1);
+      // First getTvById calls: /tv/{id} and /tv/{id}/content_ratings
+      assert.equal(callsAfterFirst, 2);
+      // Second getTvById should use cache, no additional calls
+      assert.equal(calls, 2);
       assert.equal(first, second);
     });
   } finally {

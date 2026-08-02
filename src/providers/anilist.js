@@ -146,6 +146,13 @@ const MEDIA_DETAIL_FIELDS = `
       }
     }
   }
+  streamingEpisodes(sort: EPISODE) {
+    episode
+    title
+    thumbnail
+    url
+    site
+  }
 `;
 
 // Cached: this is called repeatedly for the same id across metadata/children/
@@ -279,13 +286,26 @@ async function getEpisodesPage(id, start = 0, size = 50) {
 
   const episodes = [];
   const limit = Math.min(start + size, safeTotal);
+  const streamingEpisodesByNumber = new Map();
+  (media.streamingEpisodes || []).forEach((ep) => {
+    if (ep?.episode) {
+      const episodeNum = Number(ep.episode);
+      if (Number.isFinite(episodeNum)) {
+        streamingEpisodesByNumber.set(episodeNum, ep);
+      }
+    }
+  });
+
   for (let number = start + 1; number <= limit; number += 1) {
     const scheduled = schedules.find((entry) => entry.episode === number);
+    const streaming = streamingEpisodesByNumber.get(number);
+
     episodes.push({
       episodeNumber: number,
       airDate: formatAiringDate(scheduled?.airingAt),
-      title: `Episode ${String(number).padStart(2, '0')}`,
-      summary: stripHtml(media.description || '')
+      title: streaming?.title || `Episode ${String(number).padStart(2, '0')}`,
+      summary: streaming?.title ? stripHtml(streaming.title) : stripHtml(media.description || ''),
+      thumbnail: streaming?.thumbnail || null
     });
   }
 

@@ -22,10 +22,13 @@ function buildDate(date = {}) {
   return `${date.year}-${month}-${day}`;
 }
 
-function createImageSet(media, episodeNumber) {
-  const snapshot = media.episodes && episodeNumber
-    ? `${media.coverImage?.extraLarge || media.coverImage?.large || ''}#episode-${episodeNumber}`
-    : null;
+function createImageSet(media, episodeNumber, episodeThumbnail = null) {
+  let snapshot = null;
+  if (episodeThumbnail) {
+    snapshot = `${episodeThumbnail}#episode-${episodeNumber}`;
+  } else if (media.episodes && episodeNumber) {
+    snapshot = `${media.coverImage?.extraLarge || media.coverImage?.large || ''}#episode-${episodeNumber}`;
+  }
 
   return {
     coverPoster: media.coverImage?.extraLarge || media.coverImage?.large || null,
@@ -131,6 +134,11 @@ function createRoleArray(media) {
 }
 
 function resolveContentRating(media) {
+  // TMDB content rating takes precedence (e.g. TV-14, TV-MA)
+  if (media.contentRating) {
+    return media.contentRating;
+  }
+  // Fallback for AniList: use isAdult flag
   return media.isAdult ? 'NC-17' : null;
 }
 
@@ -210,7 +218,7 @@ function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = '
   const ratingKey = buildRatingKey('episode', rootMedia.id, episodeNumber, seasonAnilistId, provider);
   const seasonRatingKey = buildRatingKey('season', rootMedia.id, seasonNumber, seasonAnilistId, provider);
   const showRatingKey = buildRatingKey('show', rootMedia.id, undefined, undefined, provider);
-  const imageSet = createImageSet(media, episodeNumber);
+  const imageSet = createImageSet(media, episodeNumber, episode.thumbnail);
   const showTitle = resolveTitle(rootMedia);
   const episodeTitle = episode.title || `Episode ${String(episodeNumber).padStart(2, '0')}`;
 

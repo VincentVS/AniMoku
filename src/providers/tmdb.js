@@ -19,7 +19,7 @@ function isConfigured() {
   return Boolean(process.env.TMDB_ACCESS_TOKEN || process.env.TMDB_API_KEY);
 }
 
-async function tmdbFetch(pathname, params = {}) {
+async function tmdbFetch(pathname, params = {}, language = 'en-US') {
   const accessToken = process.env.TMDB_ACCESS_TOKEN;
   const apiKey = process.env.TMDB_API_KEY;
   const url = new URL(`${TMDB_BASE_URL}${pathname}`);
@@ -31,7 +31,7 @@ async function tmdbFetch(pathname, params = {}) {
     url.searchParams.set('api_key', apiKey);
   }
 
-  url.searchParams.set('language', 'en-US');
+  url.searchParams.set('language', language);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, String(value)));
 
   const response = await fetch(url, { headers });
@@ -44,6 +44,18 @@ async function tmdbFetch(pathname, params = {}) {
 
 function toImageUrl(filePath) {
   return filePath ? `${TMDB_IMAGE_BASE_URL}${filePath}` : null;
+}
+
+async function getContentRating(id, language = 'en-US') {
+  try {
+    const data = await tmdbFetch(`/tv/${id}/content_ratings`, {}, language);
+    const ratings = data.results || [];
+    // Prefer IT (Italy), then US, else first available
+    const preferred = ratings.find((r) => r.iso_3166_1 === 'IT') || ratings.find((r) => r.iso_3166_1 === 'US') || ratings[0];
+    return preferred?.rating || null;
+  } catch {
+    return null;
+  }
 }
 
 function toDateParts(dateString) {
@@ -120,15 +132,20 @@ function toSeasonMediaShape(rootMedia, season) {
 
 // Cached: getSeasonChain/getEpisodesPage/getShowImages all funnel through this for
 // the same show id across metadata/children/grandchildren/images requests.
-async function getTvById(id) {
+async function getTvById(id, language = 'en-US') {
   if (!isConfigured()) {
     return null;
   }
 
   try {
-    return await showCache.wrap(`show:${id}`, async () => {
-      const show = await tmdbFetch(`/tv/${id}`);
-      return toMediaShape(show);
+    return await showCache.wrap(`show:${id}:${language}`, async () => {
+      const show = await tmdbFetch(`/tv/${id}`, {}, language);
+      const media = toMediaShape(show);
+      const contentRating = await getContentRating(id, language);
+      if (contentRating) {
+        media.contentRating = contentRating;
+      }
+      return media;
     });
   } catch (error) {
     logger.warn({ id, err: error }, 'TMDB show lookup failed');
@@ -136,13 +153,13 @@ async function getTvById(id) {
   }
 }
 
-async function searchTv(term, page = 1) {
+async function searchTv(term, page = 1, language = 'en-US') {
   if (!isConfigured()) {
     return { media: [], pageInfo: { total: 0, currentPage: page, perPage: 20, hasNextPage: false } };
   }
 
   try {
-    const data = await tmdbFetch('/search/tv', { query: term, page });
+    const data = await tmdbFetch('/search/tv', { query: term, page }, language);
     return {
       media: (data.results || []).map(toMediaShape),
       pageInfo: {
@@ -162,8 +179,8 @@ async function searchTv(term, page = 1) {
 // seasons for a show, each shaped like a season-level "media" object. TMDB already
 // exposes the season list directly on the show resource, so there's no relation
 // graph to walk the way AniList's franchise-as-separate-entries model requires.
-async function getSeasonChain(rootId) {
-  const rootMedia = await getTvById(rootId);
+async function getSeasonChain(rootId, language = 'en-US') {
+  const rootMedia = await getTvById(rootId, language);
   if (!rootMedia) {
     return [];
   }
