@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('node:path');
+const logger = require('./utils/logger');
 const metadataRoute = require('./routes/metadata');
 const childrenRoute = require('./routes/children');
 const grandchildrenRoute = require('./routes/grandchildren');
@@ -11,6 +12,14 @@ function createApp() {
   const providerConfig = require(path.join(__dirname, '..', 'config', 'provider.json'));
 
   app.use(express.json());
+
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      logger.info({ method: req.method, url: req.originalUrl, status: res.statusCode, durationMs: Date.now() - startedAt }, 'request completed');
+    });
+    next();
+  });
 
   app.get('/', (req, res) => {
     res.json(providerConfig);
@@ -31,6 +40,8 @@ function createApp() {
       return next(error);
     }
 
+    logger.error({ method: req.method, url: req.originalUrl, err: error }, 'request failed');
+
     return res.status(500).json({
       error: error.message || 'Unexpected server error'
     });
@@ -42,7 +53,7 @@ function createApp() {
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
   createApp().listen(port, () => {
-    console.log(`Anime Metadata Provider listening on port ${port}`);
+    logger.info({ port }, 'Anime Metadata Provider listening');
   });
 }
 
