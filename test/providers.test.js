@@ -65,6 +65,58 @@ test('AniList 403/429 responses log the response body message, distinguishing ra
   }
 });
 
+test('AniList retries on 429/403 with a reasonable retry-after header and succeeds on the next attempt', async () => {
+  const logger = require('../src/utils/logger');
+  const { searchMedia } = freshModule('../src/providers/anilist');
+
+  let callCount = 0;
+  const infoCalls = [];
+  const originalInfo = logger.info;
+  logger.info = (...args) => infoCalls.push(args);
+
+  try {
+    await withMockFetch(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return {
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'retry-after': '1' }),
+          json: async () => ({ errors: [{ message: 'Rate limited' }] })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: {
+            Page: {
+              pageInfo: { total: 1, currentPage: 1, perPage: 5, hasNextPage: false },
+              media: [{
+                id: 15125,
+                title: { english: 'Fire Force', romaji: 'Enen', native: null },
+                format: 'TV'
+              }]
+            }
+          }
+        })
+      };
+    }, async () => {
+      const result = await searchMedia('Fire Force');
+      assert.equal(result.pageInfo.total, 1);
+      assert.equal(result.media[0].id, 15125);
+    });
+
+    assert.equal(callCount, 2);
+    assert.equal(infoCalls.length, 1);
+    const [meta, message] = infoCalls[0];
+    assert.equal(message, 'AniList rate-limited, retrying');
+    assert.equal(meta.status, 429);
+    assert.equal(meta.retryCount, 1);
+  } finally {
+    logger.info = originalInfo;
+  }
+});
+
 test('crosswalk resolves a TVDB id from AniList id via the Fribb/anime-lists dataset', async () => {
   const { getTvdbId } = freshModule('../src/providers/crosswalk');
 

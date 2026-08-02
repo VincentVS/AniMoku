@@ -7,7 +7,11 @@ const SEASON_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
 const MAX_CHAIN_HOPS = 12;
 const mediaCache = createCache();
 
-async function runQuery(query, variables = {}) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runQuery(query, variables = {}, retryCount = 0) {
   const response = await fetch(ANILIST_URL, {
     method: 'POST',
     headers: {
@@ -23,6 +27,38 @@ async function runQuery(query, variables = {}) {
     // due to severe stability issues"), and there's no separate status page to check -
     // the only way to tell them apart is the error message in the response body, so
     // log it verbatim to make it obvious this isn't something wrong on our end.
+    if ((response.status === 403 || response.status === 429) && retryCount < 2) {
+      let body = null;
+      let retryAfterSeconds = null;
+      try {
+        body = await response.json();
+        const retryAfterHeader = response.headers.get('retry-after');
+        if (retryAfterHeader) {
+          retryAfterSeconds = Number(retryAfterHeader);
+        }
+      } catch {
+        body = null;
+      }
+
+      // Use retry-after if present and reasonable (< 30s), else exponential backoff (1s, 2s)
+      let delayMs;
+      if (retryAfterSeconds && Number.isFinite(retryAfterSeconds) && retryAfterSeconds < 30) {
+        delayMs = retryAfterSeconds * 1000;
+      } else {
+        delayMs = (1000 * Math.pow(2, retryCount));
+      }
+
+      logger.info({
+        status: response.status,
+        retryCount: retryCount + 1,
+        delayMs,
+        anilistMessage: body?.errors?.map((error) => error.message).join('; ') || null
+      }, 'AniList rate-limited, retrying');
+
+      await sleep(delayMs);
+      return runQuery(query, variables, retryCount + 1);
+    }
+
     if (response.status === 403 || response.status === 429) {
       let body = null;
       try {

@@ -456,6 +456,22 @@ provider recovers. Cached entries are per-process, in memory only — nothing to
 configure or run alongside the container, but a restart clears the cache and cache
 state is not shared across replicas if you ever run more than one instance.
 
+## Resilience: Retry and backoff
+
+AniList occasionally rate-limits or briefly disables itself outright (returning a
+bare `403 Temporarily Disabled` with no response body). While caching (above)
+reduces repeat calls and exposure to rate-limiting, the first request to a
+newly-matched show is always a cache miss and vulnerable to transient failures.
+
+To mitigate this, `searchMedia` and other AniList queries automatically retry on
+`403` and `429` responses with exponential backoff:
+
+- **Retry logic**: up to 2 retries (3 attempts total) on rate-limit errors
+- **Backoff**: exponential delays of 1 second, then 2 seconds, unless the `Retry-After` response header specifies a shorter delay (< 30 seconds), in which case we honor that instead
+- **No caching of failures**: each retry is a fresh network call; transient failures are never remembered as "try again later"
+
+If all retries are exhausted, the error is propagated and logged — Plex's match flow has already been designed to handle this gracefully, falling back to TMDB results for non-anime content or other sources if AniList is unavailable.
+
 ## Non-anime content via TMDB
 
 AniList's catalogue is anime-only, so a title like *Rick and Morty* or any other Western cartoon/live-action show has no real entry to match against — previously, the only candidates `/library/metadata/matches` could return for those searches were unrelated anime that happened to score non-zero.
