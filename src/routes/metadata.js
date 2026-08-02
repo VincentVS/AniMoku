@@ -3,6 +3,7 @@ const { getMediaById } = require('../providers/anilist');
 const tmdb = require('../providers/tmdb');
 const { mapEpisodeMetadata, mapSeasonMetadata, mapShowMetadata } = require('../utils/mapping');
 const { parseRatingKey } = require('../utils/guid');
+const { getAllSeasons, getAllEpisodes } = require('../utils/childData');
 const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
@@ -33,6 +34,12 @@ router.get('/:id', async (req, res, next) => {
   try {
     const parsed = parseRatingKey(req.params.id);
     const { provider } = parsed;
+    // Plex never calls the separate /children or /grandchildren endpoints when
+    // browsing an already-matched show - it relies entirely on this flag to get
+    // seasons (and, on a season request, episodes) embedded in this one response.
+    // See plexinc/tmdb-example-provider's docs/Metadata.md: "it is expected that
+    // all the child objects be returned in this array" - no pagination here.
+    const includeChildren = Boolean(Number(req.query.includeChildren));
 
     let metadata;
     if (parsed.type === 'show') {
@@ -40,7 +47,11 @@ router.get('/:id', async (req, res, next) => {
       if (!media) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
-      metadata = mapShowMetadata(media, undefined, provider);
+      const seasonsResult = await getAllSeasons(provider, parsed.rootId);
+      metadata = mapShowMetadata(media, seasonsResult?.seasons.length || 1, provider);
+      if (includeChildren && seasonsResult) {
+        metadata.Children = { size: seasonsResult.seasons.length, Metadata: seasonsResult.seasons };
+      }
     } else if (parsed.type === 'season') {
       const media = await resolveSeasonMedia(provider, parsed);
       if (!media) {
@@ -48,6 +59,12 @@ router.get('/:id', async (req, res, next) => {
       }
       const rootMedia = await resolveRootMedia(provider, media, parsed);
       metadata = mapSeasonMetadata(media, parsed.seasonNumber, rootMedia, provider);
+      if (includeChildren) {
+        const episodesResult = await getAllEpisodes(provider, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId);
+        if (episodesResult) {
+          metadata.Children = { size: episodesResult.episodes.length, Metadata: episodesResult.episodes };
+        }
+      }
     } else {
       const media = await resolveSeasonMedia(provider, parsed);
       if (!media) {

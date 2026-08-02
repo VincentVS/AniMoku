@@ -135,6 +135,24 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
     assert.equal(season2Grandchildren.MediaContainer.Metadata[0].grandparentRatingKey, 'anilist-15125');
     assert.equal(season2Grandchildren.MediaContainer.Metadata[0].grandparentTitle, 'Example Anime');
 
+    // Plex never calls /children or /grandchildren separately when browsing an
+    // already-matched show - it relies on includeChildren=1 to get seasons (and,
+    // on a season request, episodes) embedded directly in this one response.
+    const showWithChildren = await originalFetch(`${baseUrl}/library/metadata/anilist-15125?includeChildren=1`).then((response) => response.json());
+    const embeddedSeasons = showWithChildren.MediaContainer.Metadata[0].Children;
+    assert.equal(embeddedSeasons.size, 2);
+    assert.equal(embeddedSeasons.Metadata[0].ratingKey, 'anilist-15125-s1');
+    assert.equal(embeddedSeasons.Metadata[1].ratingKey, 'anilist-15125-s2-a20000');
+
+    const seasonWithChildren = await originalFetch(`${baseUrl}/library/metadata/anilist-15125-s1?includeChildren=1`).then((response) => response.json());
+    const embeddedEpisodes = seasonWithChildren.MediaContainer.Metadata[0].Children;
+    assert.ok(embeddedEpisodes.size >= 1);
+    assert.equal(embeddedEpisodes.Metadata[0].type, 'episode');
+    assert.equal(embeddedEpisodes.Metadata[0].parentRatingKey, 'anilist-15125-s1');
+
+    const showWithoutChildren = await originalFetch(`${baseUrl}/library/metadata/anilist-15125`).then((response) => response.json());
+    assert.equal(showWithoutChildren.MediaContainer.Metadata[0].Children, undefined);
+
     const images = await originalFetch(`${baseUrl}/library/metadata/anilist-15125/images`).then((response) => response.json());
     assert.ok(Array.isArray(images.MediaContainer.Image));
     assert.equal(images.MediaContainer.Image[0].type, 'coverPoster');
@@ -237,6 +255,16 @@ test('server dispatches tmdb- rating keys to the TMDB provider for non-anime con
       const show = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668`).then((response) => response.json());
       assert.equal(show.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.anime.anilist://show/tmdb-1668');
       assert.equal(show.MediaContainer.Metadata[0].title, 'Rick and Morty');
+
+      const showWithChildren = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668?includeChildren=1`).then((response) => response.json());
+      const embeddedSeasons = showWithChildren.MediaContainer.Metadata[0].Children;
+      assert.equal(embeddedSeasons.size, 1);
+      assert.equal(embeddedSeasons.Metadata[0].ratingKey, 'tmdb-1668-s1');
+
+      const seasonWithChildren = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668-s1?includeChildren=1`).then((response) => response.json());
+      const embeddedEpisodes = seasonWithChildren.MediaContainer.Metadata[0].Children;
+      assert.equal(embeddedEpisodes.size, 1);
+      assert.equal(embeddedEpisodes.Metadata[0].title, 'Pilot');
 
       const children = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668/children`).then((response) => response.json());
       assert.equal(children.MediaContainer.Metadata[0].ratingKey, 'tmdb-1668-s1');

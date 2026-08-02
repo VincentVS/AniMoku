@@ -93,6 +93,8 @@ docker compose up -d --build
 
 Every `:id` is a rating key prefixed with the provider that produced it — `anilist-<id>...` or `tmdb-<id>...` (see [Non-anime content via TMDB](#non-anime-content-via-tmdb)). The prefix is only ever used internally to route the request to the right backend; Plex just treats it as an opaque identifier, same as before.
 
+In practice, Plex only calls the standalone `/children` and `/grandchildren` endpoints when a request explicitly asks for a page of them — for an already-matched show it never calls either on its own. Instead it appends `includeChildren=1` to the plain `GET /library/metadata/:id` request and expects every child object embedded right there: a show response gets a `Children` object listing every season, and a season response gets a `Children` object listing every episode of that season (see `Metadata` in `docs/Metadata.md` of [plexinc/tmdb-example-provider](https://github.com/plexinc/tmdb-example-provider), the reference implementation this provider follows for the Metadata Providers protocol). Unlike the paginated standalone endpoints, this embed always returns the full list, ignoring `X-Plex-Container-*` paging headers.
+
 ## Example requests
 
 ### Provider root
