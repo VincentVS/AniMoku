@@ -48,6 +48,32 @@ test('guid helpers support a distinct AniList id per season for real multi-seaso
   });
 });
 
+test('guid helpers put the season number in TMDB episode keys, which have no per-season id', () => {
+  assert.equal(buildRatingKey('episode', 1668, 5, undefined, 'tmdb', 1), 'tmdb-1668-s1-e05');
+  assert.equal(buildRatingKey('episode', 1668, 5, undefined, 'tmdb', 3), 'tmdb-1668-s3-e05');
+  // AniList episode keys are unchanged (Plex ties watch state to them).
+  assert.equal(buildRatingKey('episode', 15125, 5, 98765, 'anilist', 2), 'anilist-15125-e05-a98765');
+
+  assert.deepEqual(parseRatingKey('tmdb-1668-s3-e05'), {
+    type: 'episode',
+    provider: 'tmdb',
+    anilistId: 1668,
+    rootId: 1668,
+    seasonNumber: 3,
+    episodeNumber: 5,
+    seasonAnilistId: 1668,
+    ratingKey: 'tmdb-1668-s3-e05'
+  });
+  // Season keys still parse as seasons, not as season-less episodes.
+  assert.equal(parseRatingKey('tmdb-1668-s3').type, 'season');
+});
+
+test('show mapping exposes external ids as a Plex Guid array', () => {
+  const show = mapShowMetadata({ id: 15125, title: { english: 'Example' } }, 1, 'anilist', { tvdb: 1, tmdb: 2, imdb: 'tt3' });
+  assert.deepEqual(show.Guid, [{ id: 'imdb://tt3' }, { id: 'tmdb://2' }, { id: 'tvdb://1' }]);
+  assert.deepEqual(mapShowMetadata({ id: 15125, title: {} }).Guid, []);
+});
+
 test('filename parser supports season/episode, absolute, and date formats', () => {
   assert.deepEqual(parseAnimeFilename('Example.Anime.S01E03.1080p.mkv'), {
     title: 'Example Anime',

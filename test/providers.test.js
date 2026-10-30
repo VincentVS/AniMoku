@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+// No spacing between AniList calls in tests - the queue itself is still exercised.
+process.env.ANILIST_MIN_INTERVAL_MS = '0';
+
 function withMockFetch(mockFetch, run) {
   const originalFetch = global.fetch;
   global.fetch = mockFetch;
@@ -117,6 +120,36 @@ test('AniList retries on 429/403 with a reasonable retry-after header and succee
   }
 });
 
+test('AniList long retry-after pauses every queued request instead of letting each one retry', async () => {
+  const logger = require('../src/utils/logger');
+  const { searchMedia } = freshModule('../src/providers/anilist');
+
+  let callCount = 0;
+  const originalWarn = logger.warn;
+  logger.warn = () => {};
+
+  try {
+    await withMockFetch(async () => {
+      callCount += 1;
+      return {
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'retry-after': '55' }),
+        json: async () => ({ errors: [{ message: 'Too Many Requests.' }] })
+      };
+    }, async () => {
+      // Plex's "Refresh all" fans out requests concurrently.
+      const results = await Promise.allSettled([searchMedia('a'), searchMedia('b'), searchMedia('c')]);
+      assert.ok(results.every((result) => result.status === 'rejected'));
+    });
+
+    // Only the first request reached AniList; the others failed fast during the cooldown.
+    assert.equal(callCount, 1);
+  } finally {
+    logger.warn = originalWarn;
+  }
+});
+
 test('crosswalk resolves a TVDB id from AniList id via the Fribb/anime-lists dataset', async () => {
   const { getTvdbId } = freshModule('../src/providers/crosswalk');
 
@@ -131,6 +164,54 @@ test('crosswalk resolves a TVDB id from AniList id via the Fribb/anime-lists dat
     assert.equal(await getTvdbId(16498), 267440);
     // Not present in the dataset.
     assert.equal(await getTvdbId(999999), null);
+  });
+});
+
+test('crosswalk exposes tvdb/tmdb/imdb/anidb ids for an AniList id', async () => {
+  const { getExternalIds, getTvdbId } = freshModule('../src/providers/crosswalk');
+
+  await withMockFetch(async () => ({
+    ok: true,
+    json: async () => ([
+      { anilist_id: 20, anidb_id: 239, tvdb_id: 78788, themoviedb_id: 46260, imdb_id: 'tt0409591' },
+      { anilist_id: 21, themoviedb_id: 37854, imdb_id: 'unknown' }
+    ])
+  }), async () => {
+    assert.deepEqual(await getExternalIds(20), {
+      tvdb: 78788, tmdb: 46260, imdb: 'tt0409591', anidb: 239
+    });
+    // Entries without a TVDB id are still indexed for their other ids.
+    assert.deepEqual(await getExternalIds(21), {
+      tvdb: null, tmdb: 37854, imdb: null, anidb: null
+    });
+    assert.equal(await getTvdbId(21), null);
+    assert.deepEqual(await getExternalIds(999999), {});
+  });
+});
+
+test('crosswalk reads the current Fribb shapes (tmdb object, imdb array) and TVDB season placement', async () => {
+  const { getExternalIds, getTvdbPlacement } = freshModule('../src/providers/crosswalk');
+
+  await withMockFetch(async () => ({
+    ok: true,
+    json: async () => ([
+      {
+        anilist_id: 179062,
+        tvdb_id: 355480,
+        themoviedb_id: { tv: 88046 },
+        imdb_id: ['tt9307686'],
+        season: { tvdb: 3, tmdb: 3 },
+        episode_offset: { tvdb: 12, tmdb: 12 }
+      },
+      { anilist_id: 21, tvdb_id: 81797 }
+    ])
+  }), async () => {
+    assert.deepEqual(await getExternalIds(179062), {
+      tvdb: 355480, tmdb: 88046, imdb: 'tt9307686', anidb: null
+    });
+    assert.deepEqual(await getTvdbPlacement(179062), { tvdbId: 355480, season: 3, episodeOffset: 12 });
+    // Mapped to a series but not to a season.
+    assert.equal(await getTvdbPlacement(21), null);
   });
 });
 
@@ -496,6 +577,120 @@ test('fanart provider fails closed on a non-ok response or a thrown network erro
       delete process.env.FANART_API_KEY;
     } else {
       process.env.FANART_API_KEY = originalKey;
+    }
+  }
+});
+
+function anilistEpisodesMock({ episodes, scheduleFails = false, totalScheduled = 0, streamingEpisodes = [] }) {
+  const requestedPages = [];
+  const fetchMock = async (url, options = {}) => {
+    const payload = JSON.parse(options.body || '{}');
+    if (payload.query.includes('query EpisodeSchedule')) {
+      if (scheduleFails) {
+        return { ok: false, status: 500, headers: new Headers() };
+      }
+      const { page, perPage } = payload.variables;
+      requestedPages.push(page);
+      const first = (page - 1) * perPage + 1;
+      const last = Math.min(page * perPage, totalScheduled);
+      const airingSchedules = [];
+      for (let episode = first; episode <= last; episode += 1) {
+        airingSchedules.push({ episode, airingAt: 1704067200 });
+      }
+      return {
+        ok: true,
+        json: async () => ({ data: { Page: { pageInfo: { hasNextPage: last < totalScheduled }, airingSchedules } } })
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ data: { Media: { id: 21, title: { english: 'One Piece' }, episodes, startDate: { year: 1999 }, streamingEpisodes } } })
+    };
+  };
+  return { fetchMock, requestedPages };
+}
+
+test('AniList episode lists walk every airing-schedule page for shows with no fixed episode count', async () => {
+  const { getEpisodesPage } = freshModule('../src/providers/anilist');
+  const { fetchMock, requestedPages } = anilistEpisodesMock({ episodes: null, totalScheduled: 120 });
+
+  await withMockFetch(fetchMock, async () => {
+    const result = await getEpisodesPage(21, 0, Number.MAX_SAFE_INTEGER);
+    assert.equal(result.episodes.length, 120);
+    assert.deepEqual(requestedPages, [1, 2, 3]);
+  });
+});
+
+test('AniList streaming episodes are matched by the number in their title, not by position', async () => {
+  const { getEpisodesPage } = freshModule('../src/providers/anilist');
+  const { fetchMock } = anilistEpisodesMock({
+    episodes: 3,
+    streamingEpisodes: [
+      { title: 'Episode 2 - Second', thumbnail: 'https://img/2.jpg' },
+      { title: 'Episode 1 - First', thumbnail: 'https://img/1.jpg' },
+      { title: 'Recap special', thumbnail: 'https://img/x.jpg' }
+    ]
+  });
+
+  await withMockFetch(fetchMock, async () => {
+    const { episodes } = await getEpisodesPage(21, 0, 3);
+    assert.deepEqual(episodes.map((episode) => [episode.title, episode.thumbnail]), [
+      ['First', 'https://img/1.jpg'],
+      ['Second', 'https://img/2.jpg'],
+      [null, null]
+    ]);
+  });
+});
+
+test('AniList episode lists fail instead of returning a truncated season when the episode count is unknown', async () => {
+  const logger = require('../src/utils/logger');
+  const originalWarn = logger.warn;
+  logger.warn = () => {};
+
+  try {
+    const { getEpisodesPage } = freshModule('../src/providers/anilist');
+    await withMockFetch(anilistEpisodesMock({ episodes: null, scheduleFails: true }).fetchMock, async () => {
+      await assert.rejects(getEpisodesPage(21, 0, Number.MAX_SAFE_INTEGER));
+    });
+
+    // With a known episode count only the air dates are lost, so it still answers.
+    const fresh = freshModule('../src/providers/anilist');
+    await withMockFetch(anilistEpisodesMock({ episodes: 12, scheduleFails: true }).fetchMock, async () => {
+      const result = await fresh.getEpisodesPage(21, 0, Number.MAX_SAFE_INTEGER);
+      assert.equal(result.episodes.length, 12);
+    });
+  } finally {
+    logger.warn = originalWarn;
+  }
+});
+
+test('TMDB season episode lookups fail instead of returning an empty season', async () => {
+  const originalKey = process.env.TMDB_API_KEY;
+  process.env.TMDB_API_KEY = 'test-key';
+  const logger = require('../src/utils/logger');
+  const originalWarn = logger.warn;
+  logger.warn = () => {};
+
+  try {
+    const tmdb = freshModule('../src/providers/tmdb');
+    await withMockFetch(async (url) => {
+      const href = url.toString();
+      if (href.includes('/season/1')) {
+        return { ok: false, status: 503 };
+      }
+      if (href.includes('/content_ratings')) {
+        return { ok: true, json: async () => ({ results: [] }) };
+      }
+      return { ok: true, json: async () => ({ id: 1668, name: 'Rick and Morty', seasons: [{ season_number: 1 }] }) };
+    }, async () => {
+      await assert.rejects(tmdb.getEpisodesPage(1668, 1, 0, 50));
+    });
+  } finally {
+    logger.warn = originalWarn;
+    if (originalKey === undefined) {
+      delete process.env.TMDB_API_KEY;
+    } else {
+      process.env.TMDB_API_KEY = originalKey;
     }
   }
 });

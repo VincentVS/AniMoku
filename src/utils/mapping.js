@@ -142,7 +142,20 @@ function resolveContentRating(media) {
   return media.isAdult ? 'NC-17' : null;
 }
 
-function mapShowMetadata(media, childCount = 1, provider = 'anilist') {
+// Plex's provider spec accepts `Guid: [{ id: 'imdb://tt...' }, { id: 'tmdb://...' },
+// { id: 'tvdb://...' }]` next to the provider's own guid; Plex stores them as the
+// item's external ids.
+function createExternalGuidArray(externalIds = {}) {
+  return [
+    externalIds.imdb ? `imdb://${externalIds.imdb}` : null,
+    externalIds.tmdb ? `tmdb://${externalIds.tmdb}` : null,
+    externalIds.tvdb ? `tvdb://${externalIds.tvdb}` : null
+  ]
+    .filter(Boolean)
+    .map((id) => ({ id }));
+}
+
+function mapShowMetadata(media, childCount = 1, provider = 'anilist', externalIds = {}) {
   const ratingKey = buildRatingKey('show', media.id, undefined, undefined, provider);
   const imageSet = createImageSet(media);
   const title = resolveTitle(media);
@@ -154,6 +167,7 @@ function mapShowMetadata(media, childCount = 1, provider = 'anilist') {
     ratingKey,
     key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('show', ratingKey),
+    Guid: createExternalGuidArray(externalIds),
     title,
     originalTitle: media.title?.romaji || null,
     summary: stripHtml(media.description || ''),
@@ -173,6 +187,11 @@ function mapShowMetadata(media, childCount = 1, provider = 'anilist') {
   };
 }
 
+// TVDB keeps OVAs/specials in season 0.
+function seasonTitle(seasonNumber) {
+  return Number(seasonNumber) === 0 ? 'Specials' : `Season ${seasonNumber}`;
+}
+
 function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider = 'anilist') {
   const seasonAnilistId = media.id !== rootMedia.id ? media.id : undefined;
   const ratingKey = buildRatingKey('season', rootMedia.id, seasonNumber, seasonAnilistId, provider);
@@ -187,7 +206,7 @@ function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider 
     ratingKey,
     key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('season', ratingKey),
-    title: `Season ${seasonNumber}`,
+    title: seasonTitle(seasonNumber),
     originalTitle: media.title?.romaji || null,
     summary: stripHtml(media.description || ''),
     originallyAvailableAt: buildDate(media.startDate),
@@ -207,20 +226,32 @@ function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider 
     parentTitle,
     index: seasonNumber,
     images: imageSet,
-    Image: createImageArray(imageSet, `Season ${seasonNumber}`)
+    Image: createImageArray(imageSet, seasonTitle(seasonNumber))
   };
 }
 
-function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = 'anilist') {
+// `placement` positions an AniList entry inside a TVDB season that spans several
+// entries (e.g. a split-cour "Part 2" is TVDB season 3 from episode 13): the episode
+// is shown as offset + its AniList number under the season keyed by seasonMediaId,
+// while its own ratingKey (and so its guid and watch state) keeps the AniList number.
+function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = 'anilist', placement = {}) {
   const episodeNumber = Number(episode.episodeNumber || episode.index || 1);
-  const seasonNumber = Number(episode.parentIndex || 1);
+  const seasonNumber = Number(episode.parentIndex ?? 1);
   const seasonAnilistId = media.id !== rootMedia.id ? media.id : undefined;
-  const ratingKey = buildRatingKey('episode', rootMedia.id, episodeNumber, seasonAnilistId, provider);
-  const seasonRatingKey = buildRatingKey('season', rootMedia.id, seasonNumber, seasonAnilistId, provider);
+  const seasonMediaId = placement.seasonMediaId ?? media.id;
+  const ratingKey = buildRatingKey('episode', rootMedia.id, episodeNumber, seasonAnilistId, provider, seasonNumber);
+  const seasonRatingKey = buildRatingKey(
+    'season',
+    rootMedia.id,
+    seasonNumber,
+    seasonMediaId !== rootMedia.id ? seasonMediaId : undefined,
+    provider
+  );
   const showRatingKey = buildRatingKey('show', rootMedia.id, undefined, undefined, provider);
   const imageSet = createImageSet(media, episodeNumber, episode.thumbnail);
   const showTitle = resolveTitle(rootMedia);
-  const episodeTitle = episode.title || `Episode ${String(episodeNumber).padStart(2, '0')}`;
+  const displayIndex = episodeNumber + (Number(placement.offset) || 0);
+  const episodeTitle = episode.title || `Episode ${String(displayIndex).padStart(2, '0')}`;
 
   return {
     type: 'episode',
@@ -236,14 +267,14 @@ function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = '
     parentGuid: createGuid('season', seasonRatingKey),
     parentKey: `/library/metadata/${seasonRatingKey}`,
     parentType: 'season',
-    parentTitle: `Season ${seasonNumber}`,
+    parentTitle: seasonTitle(seasonNumber),
     parentIndex: seasonNumber,
     grandparentRatingKey: showRatingKey,
     grandparentGuid: createGuid('show', showRatingKey),
     grandparentKey: `/library/metadata/${showRatingKey}`,
     grandparentType: 'show',
     grandparentTitle: showTitle,
-    index: episodeNumber,
+    index: displayIndex,
     duration: media.duration ? media.duration * 60 * 1000 : null,
     images: imageSet,
     Image: createImageArray(imageSet, episodeTitle)
@@ -255,6 +286,7 @@ module.exports = {
   mapShowMetadata,
   mapSeasonMetadata,
   mapEpisodeMetadata,
+  createExternalGuidArray,
   resolveTitle,
   resolveTitleLanguageOrder,
   stripHtml,

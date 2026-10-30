@@ -53,7 +53,7 @@ function createApp() {
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
   createApp().listen(port, () => {
-    logger.info({ port }, 'Anime Metadata Provider listening');
+    logger.info({ port, version: require('../package.json').version }, 'Anime Metadata Provider listening');
   });
 }
 

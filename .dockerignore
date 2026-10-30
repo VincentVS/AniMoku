@@ -1,0 +1,15 @@
+.git
+.gitignore
+.vscode
+node_modules
+npm-debug.log*
+.env
+.env.*
+!.env.example
+bruno
+test
+docker-compose.yml
+docker-publish.local.md
+Dockerfile
+.dockerignore
+data

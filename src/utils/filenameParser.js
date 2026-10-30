@@ -118,51 +118,99 @@ function normalizeTitle(rawTitle) {
     .trim();
 }
 
+// A 4-digit "episode" in this range is almost always a year ("Show - 2019"), not an
+// episode of a long runner like One Piece - 1071.
+function isLikelyYear(value) {
+  const number = Number(value);
+  return String(value).length === 4 && number >= 1900 && number <= 2099;
+}
+
+// "S2", "Season 2", "2nd Season" right before an absolute episode number: fansub
+// releases name later seasons this way ("Show S2 - 05") instead of using SxxEyy.
+const SEASON_MARKER = String.raw`(?:S(\d{1,2})|Season\s?(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+Season)`;
+
+// Tried in order; the first hit wins. `episode` is a 4-digit-capable group so long
+// runners (One Piece - 1071) work, and an optional `v2` revision suffix is accepted.
+// Everything before the hit is the series title - whatever follows (episode title,
+// resolution, codec, release group) is never part of it.
+const EPISODE_PATTERNS = [
+  {
+    pattern: 'season-episode',
+    regex: /\bS(\d{1,2})\s?E(\d{1,4})(?:v\d+)?\b/i,
+    read: (m) => ({ seasonNumber: Number(m[1]), episodeNumber: Number(m[2]) })
+  },
+  {
+    pattern: 'season-episode',
+    regex: /\b(\d{1,2})x(\d{2,4})\b/i,
+    read: (m) => ({ seasonNumber: Number(m[1]), episodeNumber: Number(m[2]) })
+  },
+  {
+    pattern: 'date',
+    regex: /\b(\d{4}-\d{2}-\d{2})\b/,
+    read: (m) => ({ airDate: m[1] })
+  },
+  {
+    pattern: 'season-absolute',
+    regex: new RegExp(String.raw`\b${SEASON_MARKER}\s+(?:-\s+)?(?:E|EP|Episode\s?)?(\d{1,4})(?:v\d+)?(?=\s|$)`, 'i'),
+    read: (m) => ({ seasonNumber: Number(m[1] || m[2] || m[3]), episodeNumber: Number(m[4]) })
+  },
+  {
+    pattern: 'absolute',
+    regex: /\b(?:E|EP|Ep\s|Episode\s?)(\d{1,4})(?:v\d+)?\b/i,
+    read: (m) => ({ episodeNumber: Number(m[1]) })
+  },
+  {
+    // "Show - 05", the fansub convention: only a dash-separated number counts, so a
+    // number that belongs to the title (Mob Psycho 100, 86) is left alone.
+    pattern: 'absolute',
+    regex: /\s-\s+(\d{1,4})(?:v\d+)?(?=\s|$)/,
+    read: (m) => (isLikelyYear(m[1]) ? null : { episodeNumber: Number(m[1]) })
+  },
+  {
+    // Last resort: a trailing bare number ("Show 05").
+    pattern: 'absolute',
+    regex: /\s(\d{1,4})(?:v\d+)?$/,
+    read: (m) => (isLikelyYear(m[1]) ? null : { episodeNumber: Number(m[1]) })
+  }
+];
+
 function parseAnimeFilename(filename) {
   if (!filename) {
     return { title: '', seasonNumber: null, episodeNumber: null, airDate: null, pattern: null };
   }
 
   const basename = path.basename(filename, path.extname(filename));
-  let working = basename;
-  let seasonNumber = null;
-  let episodeNumber = null;
-  let airDate = null;
-  let pattern = null;
+  const working = splitOnWhitespace(normalizeSeparators(stripBracketedSections(basename))).join(' ');
+  const result = { seasonNumber: null, episodeNumber: null, airDate: null, pattern: null };
+  let titlePart = working;
 
-  let match = working.match(/\bS(\d{1,2})E(\d{1,3})\b/i);
-  if (match) {
-    seasonNumber = Number(match[1]);
-    episodeNumber = Number(match[2]);
-    pattern = 'season-episode';
-    working = working.replace(match[0], ' ');
-  }
-
-  if (!pattern) {
-    match = working.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-    if (match) {
-      airDate = match[1];
-      pattern = 'date';
-      working = working.replace(match[0], ' ');
+  for (const candidate of EPISODE_PATTERNS) {
+    const match = candidate.regex.exec(working);
+    const values = match && candidate.read(match);
+    if (!values) {
+      continue;
     }
-  }
 
-  if (!pattern) {
-    match = working.match(/(?:^|[\s-])(\d{1,3})(?=$|[\s-])/);
-    if (match) {
-      episodeNumber = Number(match[1]);
-      pattern = 'absolute';
-      working = working.replace(match[0], ' ');
-    }
+    Object.assign(result, values, { pattern: candidate.pattern });
+    // A release that starts with the marker ("S01E05 - Show") has no title before it.
+    titlePart = working.slice(0, match.index).trim() || working.slice(match.index + match[0].length);
+    break;
   }
 
   return {
-    title: trimEdgeDashes(normalizeTitle(working)),
-    seasonNumber,
-    episodeNumber,
-    airDate,
-    pattern
+    title: trimEdgeDashes(normalizeTitle(titlePart)) || titleFromFolders(filename),
+    ...result
   };
+}
+
+const SEASON_FOLDER = /^(?:season\s*\d+|s\d{1,2}|specials?|extras?)$/i;
+
+// Plex sends the file path relative to the library root ("/Show/Season 01/S01E05.mkv"),
+// so a file named only by its episode marker still has the show in its folder name.
+function titleFromFolders(filename) {
+  const folders = path.dirname(String(filename)).split(/[\\/]/).filter(Boolean).reverse();
+  const showFolder = folders.find((folder) => folder !== '.' && !SEASON_FOLDER.test(folder.trim()));
+  return showFolder ? trimEdgeDashes(normalizeTitle(showFolder)) : '';
 }
 
 module.exports = {

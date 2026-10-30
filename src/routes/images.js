@@ -5,6 +5,7 @@ const { getFanartImages } = require('../providers/fanart');
 const tmdb = require('../providers/tmdb');
 const { createImageArray, createImageSet, resolveTitle } = require('../utils/mapping');
 const { parseRatingKey } = require('../utils/guid');
+const { resolveRequestLanguage } = require('../utils/language');
 const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
@@ -40,7 +41,7 @@ router.get('/:id/images', async (req, res, next) => {
     const parsed = parseRatingKey(req.params.id);
     const { provider } = parsed;
     const targetId = parsed.type === 'show' ? parsed.rootId : parsed.seasonAnilistId;
-    const media = provider === 'tmdb' ? await tmdb.getTvById(targetId) : await getMediaById(targetId);
+    const media = provider === 'tmdb' ? await tmdb.getTvById(targetId, resolveRequestLanguage(req)) : await getMediaById(targetId);
 
     if (!media) {
       return res.status(404).json({ error: 'Metadata not found' });

@@ -12,3 +12,13 @@ services:
       TMDB_ACCESS_TOKEN: ${TMDB_ACCESS_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METADATA_CACHE_TTL_SECONDS: ${METADATA_CACHE_TTL_SECONDS:-600}
+      EPISODE_ORDER: ${EPISODE_ORDER:-tvdb}
+      ANIDB_CLIENT: ${ANIDB_CLIENT:-}
+      ANIDB_CLIENTVER: ${ANIDB_CLIENTVER:-}
+      ANIDB_MIN_INTERVAL_SECONDS: ${ANIDB_MIN_INTERVAL_SECONDS:-4}
+      ANIDB_WAIT_SECONDS: ${ANIDB_WAIT_SECONDS:-10}
+      CACHE_DIR: /app/data/cache
+    volumes:
+      # Persistent AniDB cache: AniDB bans clients that re-download the same anime
+      # too often, so its responses must survive restarts and image updates.
+      - ./data:/app/data

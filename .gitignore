@@ -12,6 +12,8 @@
 *.env
 .env
 docker-publish.local.md
+# Persistent provider cache (AniDB responses)
+data/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

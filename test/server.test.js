@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+// No spacing between AniList calls in tests - the queue itself is still exercised.
+process.env.ANILIST_MIN_INTERVAL_MS = '0';
 const { createApp } = require('../src/server');
 
 const mockMedia = {
@@ -135,6 +138,21 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
     assert.equal(season2Grandchildren.MediaContainer.Metadata[0].grandparentRatingKey, 'anilist-15125');
     assert.equal(season2Grandchildren.MediaContainer.Metadata[0].grandparentTitle, 'Example Anime');
 
+    // A season's `key` is its /children URL: it must list the season's episodes.
+    const season2Children = await originalFetch(`${baseUrl}/library/metadata/anilist-15125-s2-a20000/children?X-Plex-Container-Start=1&X-Plex-Container-Size=1`)
+      .then((response) => response.json());
+    assert.equal(season2Children.MediaContainer.offset, 1);
+    assert.equal(season2Children.MediaContainer.size, 1);
+    assert.equal(season2Children.MediaContainer.Metadata[0].type, 'episode');
+    assert.equal(season2Children.MediaContainer.Metadata[0].index, 2);
+    assert.equal(season2Children.MediaContainer.Metadata[0].parentRatingKey, 'anilist-15125-s2-a20000');
+
+    // On the show itself, grandchildren span every season, not just the first.
+    const showGrandchildren = await originalFetch(`${baseUrl}/library/metadata/anilist-15125/grandchildren`).then((response) => response.json());
+    const parentKeys = new Set(showGrandchildren.MediaContainer.Metadata.map((episode) => episode.parentRatingKey));
+    assert.ok(parentKeys.has('anilist-15125-s1'));
+    assert.ok(parentKeys.has('anilist-15125-s2-a20000'));
+
     // Plex never calls /children or /grandchildren separately when browsing an
     // already-matched show - it relies on includeChildren=1 to get seasons (and,
     // on a season request, episodes) embedded directly in this one response.
@@ -149,6 +167,24 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
     assert.ok(embeddedEpisodes.size >= 1);
     assert.equal(embeddedEpisodes.Metadata[0].type, 'episode');
     assert.equal(embeddedEpisodes.Metadata[0].parentRatingKey, 'anilist-15125-s1');
+
+    // A single-episode request must keep the episode under its real season: AniList
+    // episode keys carry no season number, and defaulting it to 1 used to re-parent
+    // season 2+ episodes under a non-existent "anilist-15125-s1-a20000" season.
+    const season2Episode = await originalFetch(`${baseUrl}/library/metadata/anilist-15125-e02-a20000`).then((response) => response.json());
+    assert.equal(season2Episode.MediaContainer.Metadata[0].ratingKey, 'anilist-15125-e02-a20000');
+    assert.equal(season2Episode.MediaContainer.Metadata[0].parentIndex, 2);
+    assert.equal(season2Episode.MediaContainer.Metadata[0].parentRatingKey, 'anilist-15125-s2-a20000');
+    // Same airing-schedule date as the season's embedded episode list, not a synthesized one.
+    assert.equal(season2Episode.MediaContainer.Metadata[0].originallyAvailableAt, '2024-01-02');
+
+    const season1Episode = await originalFetch(`${baseUrl}/library/metadata/anilist-15125-e01`).then((response) => response.json());
+    assert.equal(season1Episode.MediaContainer.Metadata[0].parentRatingKey, 'anilist-15125-s1');
+
+    // An AniList season entry that's no longer part of the franchise chain has no
+    // season to belong to - 404 rather than inventing one.
+    const orphanEpisode = await originalFetch(`${baseUrl}/library/metadata/anilist-15125-e01-a99999`);
+    assert.equal(orphanEpisode.status, 404);
 
     const showWithoutChildren = await originalFetch(`${baseUrl}/library/metadata/anilist-15125`).then((response) => response.json());
     assert.equal(showWithoutChildren.MediaContainer.Metadata[0].Children, undefined);
@@ -182,8 +218,62 @@ const mockTmdbShow = {
   backdrop_path: '/backdrop.jpg',
   genres: [{ name: 'Animation' }],
   number_of_episodes: 10,
-  seasons: [{ season_number: 1, episode_count: 10, poster_path: '/season1.jpg', air_date: '2013-12-02' }]
+  seasons: [{ season_number: 1, episode_count: 10, poster_path: '/season1.jpg', air_date: '2013-12-02' }],
+  external_ids: { tvdb_id: 275274, imdb_id: 'tt2861424' }
 };
+
+test('server numbers AniList seasons like TVDB when the crosswalk maps them (split cour merged into one season)', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    if (url.toString().includes('Fribb/anime-lists')) {
+      // Like Fate/Zero: both AniList entries are TVDB season 1, the second from episode 13.
+      return {
+        ok: true,
+        json: async () => ([
+          { anilist_id: 15125, tvdb_id: 999, season: { tvdb: 1 } },
+          { anilist_id: 20000, tvdb_id: 999, season: { tvdb: 1 }, episode_offset: { tvdb: 12 } }
+        ])
+      };
+    }
+    const payload = JSON.parse(options.body || '{}');
+    if (payload.query.includes('query EpisodeSchedule')) {
+      return { ok: true, json: async () => ({ data: { Page: { pageInfo: { hasNextPage: false }, airingSchedules: [] } } }) };
+    }
+    const media = payload.variables?.id === mockSequelMedia.id ? mockSequelMedia : mockMedia;
+    return { ok: true, json: async () => ({ data: { Media: media } }) };
+  };
+
+  const server = await new Promise((resolve) => {
+    const instance = createApp().listen(0, () => resolve(instance));
+  });
+
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}/library/metadata`;
+    const get = (path) => originalFetch(`${baseUrl}/${path}`);
+
+    const show = await get('anilist-15125?includeChildren=1').then((response) => response.json());
+    assert.deepEqual(show.MediaContainer.Metadata[0].Children.Metadata.map((season) => season.ratingKey), ['anilist-15125-s1']);
+
+    const season = await get('anilist-15125-s1?includeChildren=1').then((response) => response.json());
+    const episodes = season.MediaContainer.Metadata[0].Children.Metadata;
+    assert.equal(episodes.length, 22);
+    // The second entry's episodes continue the season's numbering but keep their own keys.
+    assert.equal(episodes[12].index, 13);
+    assert.equal(episodes[12].ratingKey, 'anilist-15125-e01-a20000');
+    assert.equal(episodes[12].parentRatingKey, 'anilist-15125-s1');
+    assert.equal(episodes[12].title, 'Episode 13');
+
+    const episode = await get('anilist-15125-e01-a20000').then((response) => response.json());
+    assert.equal(episode.MediaContainer.Metadata[0].parentIndex, 1);
+    assert.equal(episode.MediaContainer.Metadata[0].index, 13);
+
+    // The pre-alignment key for the second entry no longer names a season.
+    assert.equal((await get('anilist-15125-s2-a20000')).status, 404);
+  } finally {
+    global.fetch = originalFetch;
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
 
 test('server dispatches tmdb- rating keys to the TMDB provider for non-anime content', async () => {
   const originalKey = process.env.TMDB_API_KEY;
@@ -271,7 +361,19 @@ test('server dispatches tmdb- rating keys to the TMDB provider for non-anime con
 
       const grandchildren = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668-s1/grandchildren`).then((response) => response.json());
       assert.equal(grandchildren.MediaContainer.Metadata[0].title, 'Pilot');
-      assert.equal(grandchildren.MediaContainer.Metadata[0].ratingKey, 'tmdb-1668-e01');
+      // TMDB seasons have no id of their own, so the season number is part of the
+      // episode key - otherwise every season's episode 1 would share one guid.
+      assert.equal(grandchildren.MediaContainer.Metadata[0].ratingKey, 'tmdb-1668-s1-e01');
+
+      const episode = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668-s1-e01`).then((response) => response.json());
+      assert.equal(episode.MediaContainer.Metadata[0].title, 'Pilot');
+      assert.equal(episode.MediaContainer.Metadata[0].parentRatingKey, 'tmdb-1668-s1');
+
+      assert.deepEqual(show.MediaContainer.Metadata[0].Guid, [
+        { id: 'imdb://tt2861424' },
+        { id: 'tmdb://1668' },
+        { id: 'tvdb://275274' }
+      ]);
     } finally {
       await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
@@ -285,7 +387,7 @@ test('server dispatches tmdb- rating keys to the TMDB provider for non-anime con
   }
 });
 
-test('server keeps /matches working (200) with TMDB-only results when AniList is rate-limited', async () => {
+test('server refuses automatic /matches (503) but keeps manual ones on TMDB when AniList is rate-limited', async () => {
   const originalKey = process.env.TMDB_API_KEY;
   process.env.TMDB_API_KEY = 'test-key';
   const originalFetch = global.fetch;
@@ -319,10 +421,17 @@ test('server keeps /matches working (200) with TMDB-only results when AniList is
     try {
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-      const response = await originalFetch(`${baseUrl}/library/metadata/matches`, {
+      const automatic = await originalFetch(`${baseUrl}/library/metadata/matches`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'Rick and Morty' })
+      });
+      assert.equal(automatic.status, 503);
+
+      const response = await originalFetch(`${baseUrl}/library/metadata/matches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Rick and Morty', manual: 1 })
       });
 
       assert.equal(response.status, 200);

@@ -5,6 +5,7 @@ const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/original';
 const showCache = createCache();
 const imagesCache = createCache();
+const episodesCache = createCache();
 
 // TMDB is the fallback provider for anything AniList doesn't cover - Western
 // cartoons (Rick and Morty, etc.), Western live-action TV, and any other show
@@ -98,7 +99,12 @@ function toMediaShape(show) {
     isAdult: Boolean(show.adult),
     studios: { nodes: (show.production_companies || []).map((company) => ({ name: company.name })) },
     characters: { edges: [] },
-    seasons: (show.seasons || []).filter((season) => season.season_number > 0)
+    seasons: (show.seasons || []).filter((season) => season.season_number > 0),
+    externalIds: {
+      tmdb: show.id || null,
+      tvdb: show.external_ids?.tvdb_id || null,
+      imdb: show.external_ids?.imdb_id || null
+    }
   };
 }
 
@@ -139,7 +145,7 @@ async function getTvById(id, language = 'en-US') {
 
   try {
     return await showCache.wrap(`show:${id}:${language}`, async () => {
-      const show = await tmdbFetch(`/tv/${id}`, {}, language);
+      const show = await tmdbFetch(`/tv/${id}`, { append_to_response: 'external_ids' }, language);
       const media = toMediaShape(show);
       const contentRating = await getContentRating(id, language);
       if (contentRating) {
@@ -191,12 +197,12 @@ async function getSeasonChain(rootId, language = 'en-US') {
     .map((season) => toSeasonMediaShape(rootMedia, season));
 }
 
-async function getEpisodesPage(rootId, seasonNumber, start = 0, size = 50) {
+async function getEpisodesPage(rootId, seasonNumber, start = 0, size = 50, language = 'en-US') {
   if (!isConfigured()) {
     return { media: null, episodes: [], totalSize: 0 };
   }
 
-  const rootMedia = await getTvById(rootId);
+  const rootMedia = await getTvById(rootId, language);
   if (!rootMedia) {
     return { media: null, episodes: [], totalSize: 0 };
   }
@@ -205,12 +211,13 @@ async function getEpisodesPage(rootId, seasonNumber, start = 0, size = 50) {
   const media = seasonStub ? toSeasonMediaShape(rootMedia, seasonStub) : rootMedia;
 
   try {
-    const data = await tmdbFetch(`/tv/${rootId}/season/${seasonNumber}`);
+    const data = await tmdbFetch(`/tv/${rootId}/season/${seasonNumber}`, {}, language);
     const allEpisodes = (data.episodes || []).map((episode) => ({
       episodeNumber: episode.episode_number,
       airDate: episode.air_date || null,
       title: episode.name || `Episode ${String(episode.episode_number).padStart(2, '0')}`,
-      summary: episode.overview || ''
+      summary: episode.overview || '',
+      thumbnail: toImageUrl(episode.still_path)
     }));
 
     return {
@@ -219,8 +226,56 @@ async function getEpisodesPage(rootId, seasonNumber, start = 0, size = 50) {
       totalSize: allEpisodes.length
     };
   } catch (error) {
+    // Rethrown (500) rather than returning an empty list: Plex takes a 200 with no
+    // episodes at face value and drops the season's episodes - along with their
+    // watch state - while a failed request just leaves its existing metadata alone.
     logger.warn({ rootId, seasonNumber, err: error }, 'TMDB season episode lookup failed');
-    return { media, episodes: [], totalSize: 0 };
+    throw error;
+  }
+}
+
+// `/tv/{id}` accepts at most 20 appended sub-requests.
+const MAX_APPENDED_SEASONS = 20;
+
+// Every regular episode of a show (season 1 onwards, specials excluded) in airing
+// order, i.e. its absolute numbering: an AniList episode is looked up here by its
+// franchise-absolute position (see utils/episodeSources.js), which holds whatever
+// way TMDB splits the show into seasons - it often differs from TVDB and AniList.
+async function getRegularEpisodes(id, language = 'en-US') {
+  if (!isConfigured()) {
+    return [];
+  }
+
+  try {
+    return await episodesCache.wrap(`regular-episodes:${id}:${language}`, async () => {
+      const show = await getTvById(id, language);
+      if (!show) {
+        return [];
+      }
+      const seasonNumbers = show.seasons.map((season) => season.season_number).sort((a, b) => a - b);
+      const episodes = [];
+      for (let start = 0; start < seasonNumbers.length; start += MAX_APPENDED_SEASONS) {
+        const batch = seasonNumbers.slice(start, start + MAX_APPENDED_SEASONS);
+        const data = await tmdbFetch(`/tv/${id}`, { append_to_response: batch.map((n) => `season/${n}`).join(',') }, language);
+        for (const seasonNumber of batch) {
+          const seasonEpisodes = (data[`season/${seasonNumber}`]?.episodes || [])
+            .slice()
+            .sort((a, b) => a.episode_number - b.episode_number);
+          episodes.push(...seasonEpisodes.map((episode) => ({
+            seasonNumber,
+            episodeNumber: episode.episode_number,
+            airDate: episode.air_date || null,
+            title: episode.name || null,
+            summary: episode.overview || null,
+            thumbnail: toImageUrl(episode.still_path)
+          })));
+        }
+      }
+      return episodes;
+    });
+  } catch (error) {
+    logger.warn({ id, language, err: error }, 'TMDB episode list lookup failed');
+    return [];
   }
 }
 
@@ -288,6 +343,7 @@ module.exports = {
   searchTv,
   getSeasonChain,
   getEpisodesPage,
+  getRegularEpisodes,
   getShowImages,
   toMediaShape
 };
