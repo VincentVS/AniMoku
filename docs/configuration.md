@@ -38,29 +38,40 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ANIMOKU_IMAGE` | `animoku:latest` | Image to run. Leave unset to build from this repository, or point it at an image you pushed to a registry. |
+| `ANIMOKU_IMAGE` | `ghcr.io/vincentvs/animoku:latest` | Image to run. See [Image tags](#image-tags). |
 | `PUID` / `PGID` | `1000` / `1000` | User and group the container runs as. `./data` must be writable by them. |
 
 ## Running with Docker Compose
 
+You only need `docker-compose.yml` and `.env.example`; cloning the repository is optional.
+
 ```bash
 cp .env.example .env
 mkdir -p data && sudo chown 1000:1000 data   # match PUID:PGID
-docker compose up -d --build
+docker compose up -d
 ```
 
 The container runs as an unprivileged user with `no-new-privileges`. If `./data` isn't writable by `PUID:PGID`, AniMoku still starts, but the AniDB cache stays in memory only. That costs AniDB requests on every restart and raises the risk of a ban.
 
-### Using a prebuilt image
+To update, run `docker compose pull && docker compose up -d`.
 
-Build and push the image to any registry, for example GitHub Container Registry:
+### Image tags
+
+Images are published to [GitHub Container Registry](https://github.com/VincentVS/AniMoku/pkgs/container/animoku) for `linux/amd64` and `linux/arm64`.
+
+| Tag | Contents |
+| --- | --- |
+| `latest` | The latest release |
+| `1.0.0`, `1.0` | A specific release, or the latest patch of a minor version |
+| `edge` | The current `main` branch. May be unstable. |
+
+### Building the image yourself
 
 ```bash
-docker build -t ghcr.io/<you>/animoku:latest .
-docker push ghcr.io/<you>/animoku:latest
+docker build -t animoku:local .
 ```
 
-Then set `ANIMOKU_IMAGE=ghcr.io/<you>/animoku:latest` in `.env` and run `docker compose up -d`.
+Then set `ANIMOKU_IMAGE=animoku:local` in `.env` and run `docker compose up -d`.
 
 ### Sharing a network with Plex
 

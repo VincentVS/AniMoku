@@ -1,7 +1,6 @@
 services:
   animoku:
-    build: .
-    image: ${ANIMOKU_IMAGE:-animoku:latest}
+    image: ${ANIMOKU_IMAGE:-ghcr.io/vincentvs/animoku:latest}
     ports:
       - "3000:3000"
     restart: unless-stopped

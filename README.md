@@ -11,7 +11,7 @@ AniList matching · TVDB-aligned seasons · real episode titles from TMDB & AniD
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](package.json)
-[![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](#-quick-start)
+[![Docker image](https://github.com/VincentVS/AniMoku/actions/workflows/docker.yml/badge.svg)](https://github.com/VincentVS/AniMoku/pkgs/container/animoku)
 [![Plex](https://img.shields.io/badge/Plex-1.43%2B-E5A00D?logo=plex&logoColor=white)](#-connect-it-to-plex)
 
 [Quick start](#-quick-start) · [Connect to Plex](#-connect-it-to-plex) · [Configuration](docs/configuration.md) · [How it works](docs/how-it-works.md) · [API](docs/api.md)
@@ -42,12 +42,15 @@ All optional sources are **opt-in**. With no API keys at all, it runs on AniList
 
 ## 🚀 Quick start
 
+The image is published to `ghcr.io/vincentvs/animoku` for amd64 and arm64.
+
 ```bash
-git clone https://github.com/VincentVS/AniMoku.git
-cd AniMoku
-cp .env.example .env          # optional: add TMDB / Fanart.tv / AniDB credentials
+mkdir animoku && cd animoku
+curl -fsSLO https://raw.githubusercontent.com/VincentVS/AniMoku/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/VincentVS/AniMoku/main/.env.example -o .env
+                              # optional: add TMDB / Fanart.tv / AniDB credentials to .env
 mkdir -p data                 # persistent cache, must be writable by PUID:PGID (default 1000:1000)
-docker compose up -d --build
+docker compose up -d
 ```
 
 Check that it's up:
