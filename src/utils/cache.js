@@ -9,7 +9,7 @@ function resolveTtlMs() {
 // AniList/TMDB/Fanart.tv data on every Plex request - Plex frequently calls
 // metadata/children/grandchildren/images back-to-back for the same entry, and
 // AniList in particular rate-limits/outright disables its API under load with no
-// documented recovery time. A single process instance (Docker/Synology deployment
+// documented recovery time. A single process instance (the Docker deployment
 // model, see README) makes an in-memory cache sufficient - no Redis needed.
 function createCache(ttlMs = resolveTtlMs()) {
   const store = new Map();

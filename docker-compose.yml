@@ -1,10 +1,15 @@
 services:
-  anime-provider:
+  animoku:
     build: .
-    image: ${ANIME_PROVIDER_IMAGE:-anime-metadata-provider:latest}
+    image: ${ANIMOKU_IMAGE:-animoku:latest}
     ports:
       - "3000:3000"
     restart: unless-stopped
+    # The container runs unprivileged: the host's ./data folder must be writable by this
+    # uid/gid (e.g. `mkdir -p data && sudo chown 1000:1000 data`).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt:
+      - no-new-privileges:true
     environment:
       TITLE_LANGUAGE_ORDER: ${TITLE_LANGUAGE_ORDER:-english,romaji,native}
       FANART_API_KEY: ${FANART_API_KEY:-}
@@ -17,6 +22,8 @@ services:
       ANIDB_CLIENTVER: ${ANIDB_CLIENTVER:-}
       ANIDB_MIN_INTERVAL_SECONDS: ${ANIDB_MIN_INTERVAL_SECONDS:-4}
       ANIDB_WAIT_SECONDS: ${ANIDB_WAIT_SECONDS:-10}
+      ANILIST_MIN_INTERVAL_MS: ${ANILIST_MIN_INTERVAL_MS:-2000}
+      ANILIST_MAX_RETRY_WAIT_SECONDS: ${ANILIST_MAX_RETRY_WAIT_SECONDS:-30}
       CACHE_DIR: /app/data/cache
     volumes:
       # Persistent AniDB cache: AniDB bans clients that re-download the same anime

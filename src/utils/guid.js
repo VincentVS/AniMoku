@@ -122,7 +122,10 @@ function parseRatingKey(value) {
     };
   }
 
-  throw new Error(`Unsupported rating key: ${value}`);
+  // A malformed key comes from the client: answered 400 by the error handler (see server.js).
+  const error = new Error('Unsupported rating key');
+  error.status = 400;
+  throw error;
 }
 
 module.exports = {

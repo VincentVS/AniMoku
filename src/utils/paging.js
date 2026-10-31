@@ -8,21 +8,6 @@ function parsePaging(input = {}) {
   return { start, size };
 }
 
-function paginate(items, paging = {}) {
-  const { start, size } = parsePaging(paging);
-  const totalSize = items.length;
-  const metadata = items.slice(start, start + size);
-
-  return {
-    metadata,
-    start,
-    size,
-    totalSize,
-    end: start + metadata.length
-  };
-}
-
 module.exports = {
-  parsePaging,
-  paginate
+  parsePaging
 };

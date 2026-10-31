@@ -450,3 +450,36 @@ test('server refuses automatic /matches (503) but keeps manual ones on TMDB when
     }
   }
 });
+
+test('server answers client errors with 400 and hides internal errors behind a generic 500', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    if (String(url).startsWith('http://127.0.0.1')) {
+      return originalFetch(url, options);
+    }
+    throw new Error('connect ECONNREFUSED internal-detail');
+  };
+  const server = await new Promise((resolve) => {
+    const instance = createApp().listen(0, () => resolve(instance));
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const badKey = await fetch(`${baseUrl}/library/metadata/not-a-key`);
+    assert.equal(badKey.status, 400);
+    assert.deepEqual(await badKey.json(), { error: 'Unsupported rating key' });
+
+    const badJson = await fetch(`${baseUrl}/library/metadata/matches`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{oops'
+    });
+    assert.equal(badJson.status, 400);
+
+    const upstream = await fetch(`${baseUrl}/library/metadata/anilist-1`);
+    assert.equal(upstream.status, 500);
+    assert.deepEqual(await upstream.json(), { error: 'Unexpected server error' });
+    assert.equal(upstream.headers.get('x-powered-by'), null);
+  } finally {
+    global.fetch = originalFetch;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

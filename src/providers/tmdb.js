@@ -51,8 +51,9 @@ async function getContentRating(id, language = 'en-US') {
   try {
     const data = await tmdbFetch(`/tv/${id}/content_ratings`, {}, language);
     const ratings = data.results || [];
-    // Prefer IT (Italy), then US, else first available
-    const preferred = ratings.find((r) => r.iso_3166_1 === 'IT') || ratings.find((r) => r.iso_3166_1 === 'US') || ratings[0];
+    // Prefer the library language's country (it-IT -> IT), then US, else first available
+    const region = String(language).split('-')[1];
+    const preferred = ratings.find((r) => r.iso_3166_1 === region) || ratings.find((r) => r.iso_3166_1 === 'US') || ratings[0];
     return preferred?.rating || null;
   } catch {
     return null;

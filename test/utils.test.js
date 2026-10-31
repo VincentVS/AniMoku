@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildRatingKey, createGuid, parseRatingKey } = require('../src/utils/guid');
 const { parseAnimeFilename } = require('../src/utils/filenameParser');
-const { parsePaging, paginate } = require('../src/utils/paging');
+const { parsePaging } = require('../src/utils/paging');
 const { mapShowMetadata, mapSeasonMetadata, mapEpisodeMetadata, resolveTitle, resolveTitleLanguageOrder, stripHtml, createImageSet, createImageArray } = require('../src/utils/mapping');
 
 test('guid helpers build and parse Plex identifiers', () => {
@@ -104,14 +104,6 @@ test('paging helpers read Plex headers and slice results', () => {
   assert.deepEqual(parsePaging({ 'x-plex-container-start': '2', 'x-plex-container-size': '3' }), {
     start: 2,
     size: 3
-  });
-
-  assert.deepEqual(paginate([1, 2, 3, 4, 5], { start: 1, size: 2 }), {
-    metadata: [2, 3],
-    start: 1,
-    size: 2,
-    totalSize: 5,
-    end: 3
   });
 });
 
