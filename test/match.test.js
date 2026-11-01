@@ -285,7 +285,7 @@ test('automatic AniList searches hide adult entries unless Plex passes includeAd
       await postMatch(baseUrl, { type: 2, title: 'Anything Else', includeAdult: 1 });
     });
     assert.equal(backend.calls.search[0].isAdult, false);
-    assert.equal(backend.calls.search[1].isAdult, null);
+    assert.ok(!('isAdult' in backend.calls.search[1]), 'isAdult must be omitted: AniList returns nothing for null');
   } finally {
     backend.restore();
   }

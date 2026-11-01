@@ -224,7 +224,9 @@ async function getMediaById(id) {
 }
 
 // `isAdult: false` hides hentai from automatic matches; Plex passes includeAdult=1
-// when the library allows it, and a null variable leaves AniList's filter off.
+// when the library allows it, and leaving the variable out turns AniList's filter off.
+// It must be omitted, not null: AniList reads `isAdult: null` as "isAdult is null"
+// and returns no results at all.
 async function searchMedia(search, page = 1, perPage = 5, { includeAdult = false } = {}) {
   const query = `
     query SearchMedia($search: String!, $page: Int!, $perPage: Int!, $isAdult: Boolean) {
@@ -245,7 +247,7 @@ async function searchMedia(search, page = 1, perPage = 5, { includeAdult = false
   `;
 
   const data = await runQuery(query, {
-    search, page, perPage, isAdult: includeAdult ? null : false
+    search, page, perPage, ...(includeAdult ? {} : { isAdult: false })
   });
   return data.Page;
 }
