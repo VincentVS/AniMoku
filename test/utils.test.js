@@ -9,7 +9,7 @@ test('guid helpers build and parse Plex identifiers', () => {
   assert.equal(buildRatingKey('show', 15125), 'anilist-15125');
   assert.equal(buildRatingKey('season', 15125, 1), 'anilist-15125-s1');
   assert.equal(buildRatingKey('episode', 15125, 3), 'anilist-15125-e03');
-  assert.equal(createGuid('show', 'anilist-15125'), 'tv.plex.agents.custom.anime.anilist://show/anilist-15125');
+  assert.equal(createGuid('show', 'anilist-15125'), 'tv.plex.agents.custom.animoku://show/anilist-15125');
   assert.deepEqual(parseRatingKey('anilist-15125-e03'), {
     type: 'episode',
     provider: 'anilist',
@@ -147,12 +147,12 @@ const media = {
 
 test('mapping helpers produce Plex-oriented show metadata enriched with rating, studio, genre, and cast', () => {
   const show = mapShowMetadata(media);
-  assert.equal(show.guid, 'tv.plex.agents.custom.anime.anilist://show/anilist-15125');
+  assert.equal(show.guid, 'tv.plex.agents.custom.animoku://show/anilist-15125');
   assert.equal(show.title, 'Example Anime');
   assert.equal(show.summary, 'Summary');
   assert.equal(show.originalTitle, 'Example Anime Romaji');
   assert.equal(show.rating, 8.5);
-  assert.deepEqual(show.Rating, [{ image: 'tv.plex.agents.custom.anime.anilist://image.rating', type: 'audience', value: 8.5 }]);
+  assert.deepEqual(show.Rating, [{ image: 'tv.plex.agents.custom.animoku://image.rating', type: 'audience', value: 8.5 }]);
   assert.equal(show.studio, 'Example Studio');
   assert.deepEqual(show.Studio, [{ tag: 'Example Studio' }]);
   assert.deepEqual(show.Genre, [{ tag: 'Action' }]);

@@ -1,13 +1,13 @@
 {
   "MediaProvider": {
-    "identifier": "tv.plex.agents.custom.anime.anilist",
+    "identifier": "tv.plex.agents.custom.animoku",
     "title": "AniMoku",
     "Types": [
       {
         "type": 2,
         "Scheme": [
           {
-            "scheme": "tv.plex.agents.custom.anime.anilist"
+            "scheme": "tv.plex.agents.custom.animoku"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "type": 3,
         "Scheme": [
           {
-            "scheme": "tv.plex.agents.custom.anime.anilist"
+            "scheme": "tv.plex.agents.custom.animoku"
           }
         ]
       },
@@ -23,7 +23,7 @@
         "type": 4,
         "Scheme": [
           {
-            "scheme": "tv.plex.agents.custom.anime.anilist"
+            "scheme": "tv.plex.agents.custom.animoku"
           }
         ]
       }

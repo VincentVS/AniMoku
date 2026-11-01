@@ -107,8 +107,8 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
     const metadata = await originalFetch(`${baseUrl}/library/metadata/anilist-15125`).then((response) => response.json());
-    assert.equal(metadata.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.anime.anilist://show/anilist-15125');
-    assert.equal(metadata.MediaContainer.identifier, 'tv.plex.agents.custom.anime.anilist');
+    assert.equal(metadata.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.animoku://show/anilist-15125');
+    assert.equal(metadata.MediaContainer.identifier, 'tv.plex.agents.custom.animoku');
     assert.equal(metadata.MediaContainer.Metadata[0].rating, 8);
     assert.equal(metadata.MediaContainer.Metadata[0].studio, 'Example Studio');
     assert.deepEqual(metadata.MediaContainer.Metadata[0].Genre, [{ tag: 'Action' }, { tag: 'Fantasy' }]);
@@ -343,7 +343,7 @@ test('server dispatches tmdb- rating keys to the TMDB provider for non-anime con
       assert.equal(tmdbMatch.title, 'Rick and Morty');
 
       const show = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668`).then((response) => response.json());
-      assert.equal(show.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.anime.anilist://show/tmdb-1668');
+      assert.equal(show.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.animoku://show/tmdb-1668');
       assert.equal(show.MediaContainer.Metadata[0].title, 'Rick and Morty');
 
       const showWithChildren = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668?includeChildren=1`).then((response) => response.json());

@@ -261,7 +261,7 @@ test('/matches resolves guid hints and folder id tags without a title search', a
 
       // Our own guid, as Plex sends it back on a refresh.
       const byOwnGuid = await postMatch(baseUrl, {
-        type: 2, title: 'whatever', guid: 'tv.plex.agents.custom.anime.anilist://show/anilist-20958'
+        type: 2, title: 'whatever', guid: 'tv.plex.agents.custom.animoku://show/anilist-20958'
       });
       assert.equal(byOwnGuid.body.MediaContainer.Metadata[0].ratingKey, 'anilist-20958');
 

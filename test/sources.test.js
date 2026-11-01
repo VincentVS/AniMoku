@@ -371,7 +371,7 @@ test('the episode order is picked by folder tag, EPISODE_ORDER, or kept from our
         assert.equal((await postMatch(baseUrl, { type: 2, title: 'Show 90001' }))[0].ratingKey, 'anilistabs-90001');
         assert.equal((await postMatch(baseUrl, { type: 2, title: 'Show 90001 {tvdb}' }))[0].ratingKey, 'anilist-90001');
         // An existing TVDB-order match isn't silently switched by the new default.
-        const kept = await postMatch(baseUrl, { type: 2, guid: 'tv.plex.agents.custom.anime.anilist://show/anilist-90001' });
+        const kept = await postMatch(baseUrl, { type: 2, guid: 'tv.plex.agents.custom.animoku://show/anilist-90001' });
         assert.equal(kept[0].ratingKey, 'anilist-90001');
       });
       // An absolute S01E05 file resolves to season 2's last episode.

@@ -39,7 +39,7 @@ The rating key prefix tells AniMoku which backend to use. Plex treats keys as op
 - AniList episode keys carry their AniList entry and episode number, not the displayed season. So guids, and with them watch state, survive renumbering: `anilist-105310-e01-a179062` is displayed as S03E13.
 - TMDB seasons have no ids of their own, so TMDB episode keys carry the season number.
 
-Guids are `tv.plex.agents.custom.anime.anilist://<type>/<ratingKey>`.
+Guids are `tv.plex.agents.custom.animoku://<type>/<ratingKey>`.
 
 ## Examples
 
@@ -69,7 +69,7 @@ A match response looks like this (trimmed):
       {
         "type": "show",
         "ratingKey": "anilist-5114",
-        "guid": "tv.plex.agents.custom.anime.anilist://show/anilist-5114",
+        "guid": "tv.plex.agents.custom.animoku://show/anilist-5114",
         "title": "Fullmetal Alchemist: Brotherhood",
         "year": 2009,
         "score": 100

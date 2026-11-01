@@ -102,7 +102,7 @@ docker exec -it <plex_container> curl -s http://animoku:3000/health
 2. Plex reads `GET /` and lists the agent as **AniMoku**.
 3. In each anime library, choose the agent under **Edit library → Advanced**, then run **Refresh All Metadata**.
 
-The provider identifier is `tv.plex.agents.custom.anime.anilist`. Guids look like `tv.plex.agents.custom.anime.anilist://show/anilist-15125`. The identifier never changes, so existing matches survive upgrades.
+The provider identifier is `tv.plex.agents.custom.animoku`. Guids look like `tv.plex.agents.custom.animoku://show/anilist-15125`. The identifier never changes, so existing matches survive upgrades.
 
 ## Folder name tags
 

@@ -1,4 +1,4 @@
-const SCHEME = 'tv.plex.agents.custom.anime.anilist';
+const SCHEME = 'tv.plex.agents.custom.animoku';
 
 // The rating-key prefix doubles as the provider tag so routes can dispatch to the
 // right backend (AniList for anime, TMDB for everything else e.g. Western cartoons)
