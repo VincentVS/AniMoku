@@ -91,6 +91,10 @@ function findOrderTag(...texts) {
   return null;
 }
 
+function fileNumbersAreAbsolute() {
+  return String(process.env.FILE_NUMBERING || '').trim().toLowerCase() === 'absolute';
+}
+
 function defaultEpisodeOrder() {
   return String(process.env.EPISODE_ORDER || '').trim().toLowerCase() === 'absolute' ? 'absolute' : 'tvdb';
 }
@@ -180,10 +184,41 @@ async function fetchShow(hint, language) {
   }
 }
 
+// TMDB lists most anime too, often under the same title and year
+// as AniList. A TMDB hit the crosswalk maps to an AniList entry is that entry: it's
+// dropped when the AniList one is listed (which keeps the better score), and swapped
+// for it when it would be the automatic match - otherwise Plex could attach the anime
+// to TMDB's seasons and episodes. Expects candidates sorted by score; returns them so.
+async function preferAnilist(candidates, manual) {
+  const byAnilistId = new Map(candidates
+    .filter((candidate) => candidate.provider === 'anilist')
+    .map((candidate) => [candidate.media.id, candidate]));
+  const kept = [];
+  for (const candidate of candidates) {
+    const anilistId = candidate.provider === 'tmdb' ? await findAnilistId('tmdb', candidate.media.id) : null;
+    if (!anilistId) {
+      kept.push(candidate);
+    } else if (byAnilistId.has(anilistId)) {
+      const listed = byAnilistId.get(anilistId);
+      listed.score = Math.max(listed.score, candidate.score);
+    } else if (!manual && !kept.length) {
+      const media = await getMediaById(anilistId).catch(() => null);
+      const swapped = media ? { provider: 'anilist', media, score: candidate.score } : candidate;
+      if (media) {
+        byAnilistId.set(anilistId, swapped);
+      }
+      kept.push(swapped);
+    } else {
+      kept.push(candidate);
+    }
+  }
+  return kept.sort((a, b) => b.score - a.score);
+}
+
 // Ranked show candidates as { provider, media, score }. AniList (anime) and TMDB
 // (everything else - Western cartoons, live action) are searched in parallel and
-// merged; on equal scores AniList stays first, so an anime TMDB also lists keeps its
-// AniList seasons. TMDB is a silent no-op without credentials.
+// merged; on equal scores AniList stays first, and TMDB duplicates of AniList entries
+// are folded into them (see preferAnilist). TMDB is a silent no-op without credentials.
 async function findShows({
   term, year, parsedFilename, guid, manual, includeAdult, language
 }) {
@@ -229,10 +264,10 @@ async function findShows({
   const tmdbMedia = tmdbResult.status === 'fulfilled' ? (tmdbResult.value?.media || []).slice(0, perPage) : [];
   const score = (media) => createMatchScore(media, term, parsedFilename, { year });
 
-  const candidates = [
+  const candidates = await preferAnilist([
     ...anilistMedia.map((media) => ({ provider: 'anilist', media, score: score(media) })),
     ...tmdbMedia.map((media) => ({ provider: 'tmdb', media, score: score(media) }))
-  ].sort((a, b) => b.score - a.score);
+  ].sort((a, b) => b.score - a.score), manual);
 
   logger.info({
     term,
@@ -288,14 +323,25 @@ function dedupeCandidates(candidates) {
   });
 }
 
+// "[AniList · TV · 24 ep]": AniList and TMDB often list a show under the same title
+// and year, and Plex's Fix Match list shows little else to tell them apart.
+function candidateLabel(provider, media) {
+  const source = provider === 'tmdb' ? 'TMDB' : 'AniList';
+  const format = media.format ? media.format.replace(/_/g, ' ') : null;
+  const episodes = media.episodes ? `${media.episodes} ep` : null;
+  return `[${[source, format, episodes].filter(Boolean).join(' · ')}]`;
+}
+
 function toShowCandidate({ provider, media, score }, extras) {
   const ratingKey = buildRatingKey('show', media.id, undefined, undefined, provider);
+  const title = resolveTitle(media);
   return {
     type: 'show',
     ratingKey,
     key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('show', ratingKey),
-    title: resolveTitle(media),
+    // Only on manual lists: an automatic match's title is what Plex stores.
+    title: extras?.manual ? `${title} ${candidateLabel(provider, media)}` : title,
     originalTitle: media.title?.romaji || null,
     summary: stripHtml(media.description || ''),
     year: media.startDate?.year || null,
@@ -318,8 +364,11 @@ async function loadSeasonEpisodes(show, season, language) {
 // 2 episode 6): when season 1 has no such episode, the index is counted across the
 // regular seasons in order. Sonarr's TVDB season folders can keep absolute numbers too
 // ("S02E25" after a 24-episode season 1): a later season falls back the same way, but
-// only for an index past season 1, which a season-relative number never is. The
-// absolute order has a single regular season, so the file's season is ignored there.
+// only for an index past season 1, which a season-relative number never is. When an
+// index fits both ways (S02E21 with 20 episodes in season 1 and 21 in season 2), the
+// season-relative reading wins unless FILE_NUMBERING=absolute says the library names
+// files with absolute numbers (Sonarr's "S02.E21" with {absolute} as the episode).
+// The absolute order has a single regular season, so the file's season is ignored there.
 // `date` is the protocol's fallback when there's no index.
 async function findEpisode(show, { parentIndex, index, date }, language) {
   const seasons = (await getAllSeasons(show.provider, show.media.id, language))?.seasons || [];
@@ -327,16 +376,11 @@ async function findEpisode(show, { parentIndex, index, date }, language) {
 
   if (index) {
     const seasonNumber = isAbsoluteOrder(show.provider) ? 1 : (parentIndex ?? 1);
-    const season = seasons.find((entry) => entry.index === seasonNumber);
-    const direct = season && (await loadSeasonEpisodes(show, season, language)).find((episode) => episode.index === index);
-    if (direct) {
-      return direct;
-    }
-
-    const firstSeasonLength = regularSeasons.length
-      ? (await loadSeasonEpisodes(show, regularSeasons[0], language)).length
-      : 0;
-    if (seasonNumber === 1 || index > firstSeasonLength) {
+    const findDirect = async () => {
+      const season = seasons.find((entry) => entry.index === seasonNumber);
+      return season && (await loadSeasonEpisodes(show, season, language)).find((episode) => episode.index === index);
+    };
+    const findAbsolute = async () => {
       let remaining = index;
       for (const entry of regularSeasons) {
         const episodes = (await loadSeasonEpisodes(show, entry, language)).sort((a, b) => a.index - b.index);
@@ -344,6 +388,21 @@ async function findEpisode(show, { parentIndex, index, date }, language) {
           return episodes[remaining - 1];
         }
         remaining -= episodes.length;
+      }
+      return null;
+    };
+
+    const firstSeasonLength = regularSeasons.length
+      ? (await loadSeasonEpisodes(show, regularSeasons[0], language)).length
+      : 0;
+    const absoluteAllowed = seasonNumber === 1 || index > firstSeasonLength;
+    const lookups = absoluteAllowed && seasonNumber > 1 && fileNumbersAreAbsolute()
+      ? [findAbsolute, findDirect]
+      : [findDirect, ...(absoluteAllowed ? [findAbsolute] : [])];
+    for (const lookup of lookups) {
+      const episode = await lookup();
+      if (episode) {
+        return episode;
       }
     }
   }

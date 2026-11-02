@@ -21,12 +21,12 @@ function parseImdbId(value) {
   return candidates.find((id) => typeof id === 'string' && id.startsWith('tt')) || null;
 }
 
-function parseTvdbSeason(entry) {
-  const season = entry.season?.tvdb;
+function parseSeason(entry, source) {
+  const season = entry.season?.[source];
   if (!Number.isInteger(season) || season < 0) {
     return null;
   }
-  const offset = Number(entry.episode_offset?.tvdb);
+  const offset = Number(entry.episode_offset?.[source]);
   return { season, episodeOffset: Number.isInteger(offset) && offset > 0 ? offset : 0 };
 }
 
@@ -53,15 +53,16 @@ function fetchIndex() {
           imdb: parseImdbId(entry.imdb_id),
           anidb: Number(entry.anidb_id) || null
         };
-        const tvdbSeason = ids.tvdb ? parseTvdbSeason(entry) : null;
+        const tvdbSeason = ids.tvdb ? parseSeason(entry, 'tvdb') : null;
+        const tmdbSeason = ids.tmdb ? parseSeason(entry, 'tmdb') : null;
         if (ids.tvdb || ids.tmdb || ids.imdb || ids.anidb) {
-          index.set(anilistId, { ids, tvdbSeason });
+          index.set(anilistId, { ids, tvdbSeason, tmdbSeason });
         }
         const external = { ...ids, mal: Number(entry.mal_id) || null };
         for (const [source, id] of Object.entries(external)) {
           if (id) {
             const key = `${source}:${id}`;
-            byExternalId.set(key, [...(byExternalId.get(key) || []), { anilistId, tvdbSeason }]);
+            byExternalId.set(key, [...(byExternalId.get(key) || []), { anilistId, tvdbSeason, tmdbSeason }]);
           }
         }
       }
@@ -143,20 +144,35 @@ async function getTvdbPlacement(anilistId) {
   }
 }
 
+// Same as getTvdbPlacement, for TMDB: { tmdbId, season, episodeOffset }, e.g. a
+// sequel's second cour is TMDB season 2 after episode 13.
+async function getTmdbPlacement(anilistId) {
+  try {
+    const index = await loadIndex();
+    const entry = index.get(Number(anilistId));
+    return entry?.tmdbSeason ? { tmdbId: entry.ids.tmdb, ...entry.tmdbSeason } : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 // The AniList entry an external id points at. TVDB and TMDB ids name a whole series
 // that Fribb splits over several AniList entries (one per cour), so the series'
 // first season (season 1, no episode offset) is preferred: that's the entry the
-// season layout is built from. Returns null when nothing is mapped.
+// season layout is built from. A TMDB id is ranked on Fribb's TMDB seasons, which long
+// runners have where TVDB ones are missing (the series is TMDB season 1 with no TVDB
+// season, its sequel TVDB season 17 and TMDB season 2). Returns null when nothing is mapped.
 async function findAnilistId(source, externalId) {
   try {
     const index = await loadIndex();
     const normalizedId = source === 'imdb' ? String(externalId) : Number(externalId);
     const matches = index.byExternalId?.get(`${source}:${normalizedId}`) || [];
-    const rank = ({ tvdbSeason }) => {
-      if (!tvdbSeason) {
+    const rank = (match) => {
+      const season = (source === 'tmdb' && match.tmdbSeason) || match.tvdbSeason;
+      if (!season) {
         return 1000;
       }
-      return (tvdbSeason.season === 0 ? 500 : tvdbSeason.season * 10) + (tvdbSeason.episodeOffset ? 1 : 0);
+      return (season.season === 0 ? 500 : season.season * 10) + (season.episodeOffset ? 1 : 0);
     };
     const best = matches.slice().sort((a, b) => rank(a) - rank(b) || a.anilistId - b.anilistId)[0];
     return best ? best.anilistId : null;
@@ -185,5 +201,5 @@ async function findFranchiseRoot(anilistId) {
 }
 
 module.exports = {
-  getTvdbId, getExternalIds, getTvdbPlacement, findAnilistId, findFranchiseRoot
+  getTvdbId, getExternalIds, getTvdbPlacement, getTmdbPlacement, findAnilistId, findFranchiseRoot
 };

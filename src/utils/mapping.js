@@ -63,11 +63,13 @@ function createImageArray(imageSet, alt, gallery = {}) {
   return entries;
 }
 
-const TITLE_LANGUAGE_KEYS = ['english', 'romaji', 'native'];
+const TITLE_LANGUAGE_KEYS = ['localized', 'english', 'romaji', 'native'];
 const DEFAULT_TITLE_LANGUAGE_ORDER = TITLE_LANGUAGE_KEYS;
 
-// AniList only exposes english/romaji/native title fields (no Italian), so this only
-// lets TITLE_LANGUAGE_ORDER reorder priority among those three, e.g. "romaji,english,native".
+// AniList exposes english/romaji/native titles; `localized` is the library language's
+// title borrowed from TMDB (utils/localize.js), only set for non-English libraries.
+// TITLE_LANGUAGE_ORDER reorders them, e.g. "romaji,english,native"; keys it leaves out
+// keep their default order after the listed ones.
 function resolveTitleLanguageOrder() {
   const raw = process.env.TITLE_LANGUAGE_ORDER;
   if (!raw) {

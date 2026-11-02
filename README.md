@@ -96,7 +96,8 @@ Configuration is done through environment variables. Everything is optional.
 | `FANART_API_KEY` | Extra posters, backgrounds, clear logos and per-season art |
 | `ANIDB_CLIENT` + `ANIDB_CLIENTVER` | AniDB episode titles in many languages, summaries and air dates |
 | `EPISODE_ORDER` | `tvdb` (default) or `absolute` |
-| `TITLE_LANGUAGE_ORDER` | Show title priority, default `english,romaji,native` |
+| `FILE_NUMBERING` | `absolute` when files keep absolute numbers in season folders (`S02.E21`) |
+| `TITLE_LANGUAGE_ORDER` | Show title priority, default `localized,english,romaji,native` (`localized` = library language via TMDB) |
 
 See **[docs/configuration.md](docs/configuration.md)** for the complete list, defaults and deployment recipes.
 

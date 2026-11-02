@@ -17,7 +17,8 @@ Plex sends the show's title, year and a filename. AniMoku:
 1. **Looks for a precise hint first.** A guid from an earlier match, or an id tag in the folder name such as `{tvdb-267440}` (see [folder name tags](configuration.md#folder-name-tags)), resolves straight to an entry.
 2. **Parses the filename.** It understands `S02E05`, fansub-style absolute numbers (`[Group] Show - 105 [1080p].mkv`), `S2 - 05` and dated episodes.
 3. **Searches AniList and, if configured, TMDB in parallel.** Candidates are scored against all three AniList titles (English, romaji, native), so a romaji filename still finds the entry whose display title is English. On equal scores AniList wins, so an anime that TMDB also lists keeps its AniList seasons.
-4. **Applies a threshold to automatic matches.** A library scan gets the best candidate only if it scores at least 70. A manual **Fix Match** gets the full ranked list.
+4. **Folds TMDB duplicates into AniList.** A TMDB result that the crosswalk maps to an AniList entry is that entry: it's dropped when the AniList entry is also listed, and replaced by it when it would be the automatic match. So an anime is never matched to TMDB just because TMDB found the folder name first.
+5. **Applies a threshold to automatic matches.** A library scan gets the best candidate only if it scores at least 70. A manual **Fix Match** gets the full ranked list, each title labelled with its source, format and episode count (`Show [AniList · TV · 24 ep]`), since AniList and TMDB often list a show under the same name and year.
 
 If AniList is unavailable during an **automatic** match, AniMoku answers `503` rather than offering only TMDB candidates. Otherwise Plex would re-match the anime to its TMDB entry, changing every guid and losing seasons and watch state. Plex keeps the existing match and retries on the next refresh. A manual match still falls back to TMDB.
 
@@ -37,7 +38,9 @@ AniMoku uses the `season.tvdb` and `episode_offset.tvdb` fields of the Fribb cro
 - Season 0 (TVDB specials) is supported and titled "Specials".
 - A movie, OVA or special joins a regular season only if the crosswalk puts it there. Attack on Titan's "Final Chapters" special, for instance, is TVDB S04E29.
 
-If the matched entry isn't in the crosswalk, seasons follow their position in the AniList chain.
+Some long runners are a single AniList entry with hundreds of episodes that the crosswalk maps to no TVDB season, while TVDB splits them into arc seasons. For these, AniMoku reads TMDB's community "TVDB Order" episode group (TMDB credentials needed) and cuts the entry into the same seasons. For example, 366 episodes become seasons 1–16, and a sequel that TVDB files as season 17 stays there. Episodes keep their AniList number in their guid, so watch state survives the regrouping. If your files keep absolute numbers inside season folders (`Show - S02.E21`), set `FILE_NUMBERING=absolute`.
+
+If the matched entry isn't in the crosswalk and TMDB has no such group, seasons follow their position in the AniList chain.
 
 ### Absolute episode order
 
@@ -63,13 +66,14 @@ For each field, the first usable value wins:
 
 Placeholder titles such as `Episode 12`, `Episodio 12` or `第12話` are skipped, so they never hide a real title from the next source.
 
-Show titles come from AniList's English, romaji and native fields in the order set by `TITLE_LANGUAGE_ORDER`. AniList has no other languages, so show titles can't be localised.
+Show titles come from AniList's English, romaji and native fields, plus a `localized` title in the library language, in the order set by `TITLE_LANGUAGE_ORDER`. AniList has no other languages, so the localised title and synopsis come from the TMDB translation of the show that the crosswalk maps the entry to. Only an entry that starts its TMDB show is translated: a later cour shares the series' TMDB id, and that synopsis would describe season 1.
 
 ## Show metadata
 
 | Plex field | Source |
 | --- | --- |
-| `title` | AniList title, see `TITLE_LANGUAGE_ORDER` |
+| `title` | AniList title or TMDB translation, see `TITLE_LANGUAGE_ORDER` |
+| `summary` | TMDB translation in the library language, otherwise AniList description |
 | `originalTitle` | AniList romaji title |
 | `Genre` | AniList genres |
 | `Studio` | AniList main studios |

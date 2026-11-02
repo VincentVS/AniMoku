@@ -160,6 +160,31 @@ async function getTvById(id, language = 'en-US') {
   }
 }
 
+// The show's name and overview in one language ({ title, summary }, either may be
+// null), preferring the language's own region (it-IT over it-CH). Every translation
+// comes with one call, cached per show whatever the language. Null when TMDB has none.
+async function getTranslation(id, language = 'en-US') {
+  if (!isConfigured()) {
+    return null;
+  }
+
+  const [code, region] = String(language).split('-');
+  try {
+    const translations = await showCache.wrap(`translations:${id}`, async () => {
+      const data = await tmdbFetch(`/tv/${id}/translations`);
+      return data.translations || [];
+    });
+    const matches = translations.filter((translation) => translation.iso_639_1 === code);
+    const best = matches.find((translation) => translation.iso_3166_1 === region) || matches[0];
+    const title = best?.data?.name || null;
+    const summary = best?.data?.overview || null;
+    return title || summary ? { title, summary } : null;
+  } catch (error) {
+    logger.warn({ id, language, err: error }, 'TMDB translations lookup failed');
+    return null;
+  }
+}
+
 async function searchTv(term, page = 1, language = 'en-US') {
   if (!isConfigured()) {
     return { media: [], pageInfo: { total: 0, currentPage: page, perPage: 20, hasNextPage: false } };
@@ -280,6 +305,86 @@ async function getRegularEpisodes(id, language = 'en-US') {
   }
 }
 
+// TVDB season number of an episode group's group: "Season 3" -> 3, "Specials" -> 0,
+// an unnumbered name (an arc title) -> its position among the regular groups.
+function groupSeasonNumber(group, regularPosition) {
+  const name = String(group.name || '');
+  if (/special/i.test(name)) {
+    return 0;
+  }
+  const number = /(\d+)/.exec(name);
+  return number ? Number(number[1]) : regularPosition;
+}
+
+// Long runners (hundreds of episodes, years on air) are a single AniList entry and a
+// single Fribb record with no TVDB season, while TVDB splits them into arc seasons.
+// TMDB's community "TVDB Order" episode group lists the TMDB episodes of each TVDB
+// season. Returns { seasons: [{ seasonNumber, first, last }], seasonStarts }, where
+// first/last are indexes in the show's regular TMDB episodes in airing order
+// (getRegularEpisodes) and seasonStarts maps each TMDB season to its first episode's
+// index; null when the show has no usable group.
+async function getTvdbOrder(id) {
+  if (!isConfigured()) {
+    return null;
+  }
+
+  try {
+    return await episodesCache.wrap(`tvdb-order:${id}`, async () => {
+      const { results = [] } = await tmdbFetch(`/tv/${id}/episode_groups`);
+      const candidate = results
+        .filter((group) => /\btvdb\b/i.test(group.name || '') && !/absolute/i.test(group.name || ''))
+        .sort((a, b) => (b.episode_count || 0) - (a.episode_count || 0))[0];
+      if (!candidate) {
+        return null;
+      }
+
+      const [detail, episodes] = await Promise.all([
+        tmdbFetch(`/tv/episode_group/${candidate.id}`),
+        getRegularEpisodes(id, 'en-US')
+      ]);
+      if (!episodes.length) {
+        // A failed episode list (logged there), not cached: retried on the next request.
+        throw new Error('TMDB episode list unavailable');
+      }
+      const positions = new Map(episodes.map((episode, index) => [`${episode.seasonNumber}:${episode.episodeNumber}`, index]));
+      const seasonStarts = new Map();
+      episodes.forEach((episode, index) => {
+        if (!seasonStarts.has(episode.seasonNumber)) {
+          seasonStarts.set(episode.seasonNumber, index);
+        }
+      });
+
+      let regularPosition = 0;
+      const seasons = [];
+      for (const group of (detail.groups || []).slice().sort((a, b) => a.order - b.order)) {
+        const seasonNumber = groupSeasonNumber(group, regularPosition + 1);
+        if (seasonNumber === 0) {
+          continue;
+        }
+        regularPosition += 1;
+        const indexes = (group.episodes || [])
+          .map((episode) => positions.get(`${episode.season_number}:${episode.episode_number}`))
+          .filter((index) => index !== undefined);
+        if (indexes.length) {
+          seasons.push({ seasonNumber, first: Math.min(...indexes), last: Math.max(...indexes) });
+        }
+      }
+
+      // Only a straight split of the airing order is usable: seasons in order, no overlaps.
+      seasons.sort((a, b) => a.seasonNumber - b.seasonNumber);
+      const ordered = seasons.every((season, index) => index === 0 || season.first > seasons[index - 1].last);
+      if (!seasons.length || !ordered) {
+        logger.info({ id, group: candidate.id }, 'TMDB TVDB-order episode group is not a straight split, ignoring it');
+        return null;
+      }
+      return { seasons, seasonStarts };
+    });
+  } catch (error) {
+    logger.warn({ id, err: error }, 'TMDB episode group lookup failed');
+    return null;
+  }
+}
+
 const SQUARE_ASPECT_TOLERANCE = 0.1;
 
 function pickSquareBackground(backdrops = []) {
@@ -341,10 +446,12 @@ async function getShowImages(id, seasonNumber) {
 module.exports = {
   isConfigured,
   getTvById,
+  getTranslation,
   searchTv,
   getSeasonChain,
   getEpisodesPage,
   getRegularEpisodes,
+  getTvdbOrder,
   getShowImages,
   toMediaShape
 };

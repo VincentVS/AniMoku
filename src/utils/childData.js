@@ -1,9 +1,10 @@
 const { resolveSeasonChainWithDetours, getEpisodesPage } = require('../providers/anilist');
 const tmdb = require('../providers/tmdb');
-const { getTvdbPlacement, getExternalIds } = require('../providers/crosswalk');
+const { getTvdbPlacement, getTmdbPlacement, getExternalIds } = require('../providers/crosswalk');
 const anidb = require('../providers/anidb');
 const { mapSeasonMetadata, mapEpisodeMetadata } = require('./mapping');
 const { DEFAULT_LANGUAGE } = require('./language');
+const { localizeMedia } = require('./localize');
 const { isAbsoluteOrder } = require('./guid');
 const { loadSources, enrichEpisodes } = require('./episodeSources');
 
@@ -26,7 +27,8 @@ function layoutOrder(provider) {
 // chain is placed where TVDB puts it (season + episode offset): entries TVDB lists
 // under another series are left out (they live in another show folder), and entries
 // not mapped yet (a season that just started airing) are appended as new seasons.
-// Without a mapping for the root, seasons fall back to chain position.
+// Without a mapping for the root, seasons follow TMDB's "TVDB Order" episode group
+// when there is one (see placeByTvdbOrder), else chain position.
 // A movie/OVA/special the chain passes through joins the layout only when Fribb puts
 // it in a regular season of the same TVDB series (Attack on Titan's "Final Chapters"
 // is S04E29-30); in season 0 or unmapped it stays out, as a separate Plex item.
@@ -44,7 +46,8 @@ async function resolveSeasonLayout(rootId, order = 'tvdb') {
   const placements = await Promise.all(chain.map((entry) => getTvdbPlacement(entry.id)));
   const rootPlacement = placements[chain.indexOf(rootMedia)];
 
-  let parts;
+  let parts = rootPlacement ? null : await placeByTvdbOrder(chain, placements, rootMedia);
+  const aligned = Boolean(rootPlacement || parts);
   if (rootPlacement) {
     const sameSeries = chain
       .map((media, order) => ({ media, order, placement: placements[order] }))
@@ -77,7 +80,7 @@ async function resolveSeasonLayout(rootId, order = 'tvdb') {
         previous = null;
       }
     });
-  } else {
+  } else if (!parts) {
     parts = chain.map((media, order) => ({ media, order, seasonNumber: order + 1, offset: 0 }));
   }
 
@@ -95,11 +98,18 @@ async function resolveSeasonLayout(rootId, order = 'tvdb') {
       let nextFree = 0;
       for (const part of seasonParts) {
         part.offset = Math.max(part.offset, nextFree);
-        nextFree = part.offset + (Number(part.media.episodes) || 0);
+        nextFree = part.offset + partSpan(part);
       }
       return {
         seasonNumber,
-        parts: seasonParts.map(({ media, offset, continues }) => (continues ? { media, offset, continues } : { media, offset }))
+        parts: seasonParts.map(({
+          media, offset, continues, start, length, tmdbBase
+        }) => ({
+          media,
+          offset,
+          ...(continues ? { continues } : {}),
+          ...(start !== undefined ? { start, length, tmdbBase } : {})
+        }))
       };
     });
 
@@ -107,7 +117,7 @@ async function resolveSeasonLayout(rootId, order = 'tvdb') {
 
   return {
     rootMedia,
-    aligned: Boolean(rootPlacement),
+    aligned,
     order,
     seasons: order === 'absolute' ? toAbsoluteSeasons(seasons) : seasons
   };
@@ -126,6 +136,99 @@ async function countEpisodes(media) {
   }
 }
 
+// Long runners keep hundreds of episodes in one AniList entry that TVDB splits into
+// arc seasons (e.g. 366 episodes as TVDB seasons 1-16), and Fribb has no TVDB season
+// for them. TMDB's "TVDB Order" episode group says which TMDB episodes make up each
+// TVDB season, so every entry is positioned in TMDB's airing order - from Fribb's TMDB
+// season/offset, else right after the previous entry, the root at the start - and cut
+// where a TVDB season starts. Such a part holds episodes start+1..start+length of its
+// entry (length null: up to the last one). Entries Fribb does place in a TVDB season
+// (a sequel series filed as season 17) keep that placement; entries with no
+// known position are appended as new seasons. Returns null without a usable group.
+async function placeByTvdbOrder(chain, placements, rootMedia) {
+  const rootIds = await getExternalIds(rootMedia.id);
+  const order = rootIds.tmdb ? await tmdb.getTvdbOrder(rootIds.tmdb) : null;
+  if (!order) {
+    return null;
+  }
+
+  const [tmdbPlacements, counts] = await Promise.all([
+    Promise.all(chain.map((entry) => getTmdbPlacement(entry.id))),
+    Promise.all(chain.map(countEpisodes))
+  ]);
+  const lastSeason = order.seasons[order.seasons.length - 1];
+  const parts = [];
+  const unplaced = [];
+  let nextStart = 0;
+  chain.forEach((media, index) => {
+    const tmdbPlacement = tmdbPlacements[index];
+    let start = media === rootMedia ? 0 : nextStart;
+    if (tmdbPlacement?.tmdbId === rootIds.tmdb && order.seasonStarts.has(tmdbPlacement.season)) {
+      start = order.seasonStarts.get(tmdbPlacement.season) + tmdbPlacement.episodeOffset;
+    }
+    const end = start !== null && counts[index] > 0 ? start + counts[index] : Infinity;
+    nextStart = end === Infinity ? null : end;
+
+    const placement = placements[index];
+    if (placement) {
+      if (placement.tvdbId === rootIds.tvdb) {
+        parts.push({ media, order: index, seasonNumber: placement.season, offset: placement.episodeOffset });
+      }
+      return;
+    }
+    if (start === null) {
+      unplaced.push({ media, order: index });
+      return;
+    }
+
+    const before = parts.length;
+    for (const season of order.seasons) {
+      // Episodes past the group's last season (still airing) stay in that season.
+      const from = Math.max(season.first, start);
+      const to = Math.min(season === lastSeason ? Infinity : season.last + 1, end);
+      if (from < to) {
+        parts.push({
+          media,
+          order: index,
+          seasonNumber: season.seasonNumber,
+          offset: from - season.first,
+          start: from - start,
+          length: to === Infinity ? null : to - from,
+          tmdbBase: start
+        });
+      }
+    }
+    if (parts.length === before) {
+      unplaced.push({ media, order: index });
+    }
+  });
+
+  let lastSeasonNumber = Math.max(0, ...parts.map((part) => part.seasonNumber));
+  unplaced.forEach(({ media, order: index }) => {
+    parts.push({ media, order: index, seasonNumber: (lastSeasonNumber += 1), offset: 0 });
+  });
+  return parts.length ? parts : null;
+}
+
+// How many of its entry's episodes a part shows (an estimate for still-airing ones).
+function partSpan(part) {
+  if (part.length != null) {
+    return part.length;
+  }
+  return Math.max(0, (Number(part.media.episodes) || 0) - (part.start || 0));
+}
+
+// Whether a part holds its entry's episode N (one cut by placeByTvdbOrder holds a range).
+function partHolds(part, episodeNumber) {
+  const start = part.start || 0;
+  return episodeNumber > start && (part.length == null || episodeNumber <= start + part.length);
+}
+
+// Added to an entry's own episode number to get its index in the season.
+function displayOffset(part) {
+  return part.offset - (part.start || 0);
+}
+
 // Adds to every part what numbering it across sources needs:
 //   absoluteOffset  episodes of the franchise's regular seasons before it
 //   tmdb            { id, offset }: TMDB show and position in its regular episodes
@@ -138,12 +241,12 @@ async function annotateParts(seasons, rootMedia) {
   const lastPart = allParts[allParts.length - 1];
   const [ids, counts, rootIds] = await Promise.all([
     Promise.all(allParts.map((part) => getExternalIds(part.media.id))),
-    Promise.all(allParts.map((part) => (part === lastPart ? Number(part.media.episodes) || 0 : countEpisodes(part.media)))),
+    Promise.all(allParts.map((part) => (part === lastPart && !part.start ? Number(part.media.episodes) || 0 : countEpisodes(part.media)))),
     getExternalIds(rootMedia.id)
   ]);
   allParts.forEach((part, index) => {
     part.ids = ids[index];
-    part.count = counts[index];
+    part.count = part.length ?? Math.max(0, counts[index] - (part.start || 0));
   });
 
   const rootTmdb = rootIds.tmdb || null;
@@ -160,14 +263,16 @@ async function annotateParts(seasons, rootMedia) {
         length = Math.max(length, part.offset + part.count);
         const tmdbId = (SERIES_FORMATS.has(part.media.format) && part.ids.tmdb) || rootTmdb;
         if (tmdbId) {
-          part.tmdb = { id: tmdbId, offset: tmdbNext.get(tmdbId) || 0 };
-          tmdbNext.set(tmdbId, part.tmdb.offset + part.count);
+          // Offsets are those of the entry's episode 1, also for a part holding a range.
+          const known = tmdbId === rootTmdb ? part.tmdbBase : undefined;
+          part.tmdb = { id: tmdbId, offset: known ?? (tmdbNext.get(tmdbId) || 0) - (part.start || 0) };
+          tmdbNext.set(tmdbId, part.tmdb.offset + (part.start || 0) + part.count);
         }
       }
       const aid = part.ids.anidb || (part.continues && previousPart?.anidb?.aid);
       if (aid) {
-        part.anidb = { aid, offset: anidbNext.get(aid) || 0 };
-        anidbNext.set(aid, part.anidb.offset + part.count);
+        part.anidb = { aid, offset: (anidbNext.get(aid) || 0) - (part.start || 0) };
+        anidbNext.set(aid, part.anidb.offset + (part.start || 0) + part.count);
       }
       previousPart = part;
     }
@@ -264,10 +369,11 @@ async function getAllSeasons(provider, rootId, language = DEFAULT_LANGUAGE) {
   }
 
   anidb.prefetch(layout.seasons.flatMap((season) => season.parts.map((part) => part.anidb?.aid)));
+  const localizedRoot = await localizeMedia(layout.rootMedia, language);
   const seasons = layout.seasons.map((season) => mapSeasonMetadata(
-    season.parts[0].media,
+    season.parts[0].media.id === layout.rootMedia.id ? localizedRoot : season.parts[0].media,
     season.seasonNumber,
-    layout.rootMedia,
+    localizedRoot,
     provider
   ));
   return { rootMedia: layout.rootMedia, seasons };
@@ -306,12 +412,13 @@ async function getAllEpisodes(provider, rootId, seasonNumber, seasonAnilistId, l
       continue;
     }
     media = media || page.media;
-    episodes.push(...enrichEpisodes(part, page.episodes, sources[index]).map((episode) => mapEpisodeMetadata(
+    const held = page.episodes.filter((episode) => partHolds(part, episode.episodeNumber));
+    episodes.push(...enrichEpisodes(part, held, sources[index]).map((episode) => mapEpisodeMetadata(
       page.media,
       { ...episode, parentIndex: season.seasonNumber },
       layout.rootMedia,
       provider,
-      { offset: part.offset, seasonMediaId }
+      { offset: displayOffset(part), seasonMediaId }
     )));
   }
 
@@ -320,15 +427,16 @@ async function getAllEpisodes(provider, rootId, seasonNumber, seasonAnilistId, l
 
 // AniList episode keys (`anilist-<root>-eNN[-a<entryId>]`) carry neither a season
 // number nor the TVDB offset - both depend on where the layout above places that
-// entry. Returns { seasonNumber, seasonMediaId, offset }, or null when the entry is
-// no longer part of this show (a stale key).
-async function resolveEpisodePlacement(rootId, seasonAnilistId, provider = 'anilist') {
+// entry (and, for a long runner split over several seasons, that episode's number).
+// Returns { seasonNumber, seasonMediaId, offset }, or null when the entry is no longer
+// part of this show (a stale key).
+async function resolveEpisodePlacement(rootId, seasonAnilistId, provider = 'anilist', episodeNumber = 1) {
   const layout = await resolveSeasonLayout(rootId, layoutOrder(provider));
   const entryId = Number(seasonAnilistId || rootId);
   for (const season of layout?.seasons || []) {
-    const part = season.parts.find((entry) => entry.media.id === entryId);
+    const part = season.parts.find((entry) => entry.media.id === entryId && partHolds(entry, Number(episodeNumber)));
     if (part) {
-      return { seasonNumber: season.seasonNumber, seasonMediaId: season.parts[0].media.id, offset: part.offset };
+      return { seasonNumber: season.seasonNumber, seasonMediaId: season.parts[0].media.id, offset: displayOffset(part) };
     }
   }
   return null;
