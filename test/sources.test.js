@@ -51,7 +51,7 @@ const FRIBB = [
     anilist_id: 90002, anidb_id: 5002, tvdb_id: 990001, themoviedb_id: { tv: 777 }, season: { tvdb: 2 }
   },
   { anilist_id: 90003, tvdb_id: 990001, season: { tvdb: 0 } },
-  // Attack on Titan's shape: TV season, a movie TVDB files as a special, then a
+  // A common shape: TV season, a movie TVDB files as a special, then a
   // "special" TVDB counts as S01E04, then its second half Fribb doesn't know yet.
   { anilist_id: 91001, tvdb_id: 991001, season: { tvdb: 1 } },
   { anilist_id: 91004, tvdb_id: 991001, season: { tvdb: 0 } },

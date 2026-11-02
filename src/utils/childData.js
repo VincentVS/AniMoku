@@ -18,7 +18,7 @@ function layoutOrder(provider) {
 
 // AniList splits a franchise into one Media entry per cour, while TheTVDB - which is
 // what release filenames (S03E13), Sonarr and Jellyfin follow - often groups several
-// of them into one season: Fire Force's "San no Shou" and "San no Shou Part 2" are
+// of them into one season: a third season's first and second cours ("Part 2") are
 // both TVDB season 3 (episodes 1-12 and 13-25). Numbering seasons by position in the
 // AniList chain would call Part 2 "season 4", so Plex couldn't match S03E13+ files to
 // it and the season numbers would differ from Jellyfin's.
@@ -30,7 +30,7 @@ function layoutOrder(provider) {
 // Without a mapping for the root, seasons follow TMDB's "TVDB Order" episode group
 // when there is one (see placeByTvdbOrder), else chain position.
 // A movie/OVA/special the chain passes through joins the layout only when Fribb puts
-// it in a regular season of the same TVDB series (Attack on Titan's "Final Chapters"
+// it in a regular season of the same TVDB series (a "Final Chapters"
 // is S04E29-30); in season 0 or unmapped it stays out, as a separate Plex item.
 //
 // order 'absolute' then merges every regular season into season 1, numbered
@@ -296,10 +296,10 @@ function toAbsoluteSeasons(seasons) {
 }
 
 // AniList's PREQUEL/SEQUEL chain runs across what Plex libraries (and TVDB) keep as
-// separate shows - Naruto -> Naruto Shippuden -> Boruto, or One Piece's one-shot
+// separate shows - a series -> its sequel series -> a successor, or a long runner's one-shot
 // "MONSTERS" ONA - and long runners like these have no TVDB season mapping in Fribb
 // (TVDB splits them into arcs), so the layout falls back to chain position: a
-// "Naruto Shippuden" library would get Naruto as season 1. When the root's TVDB
+// sequel series' library would get its parent series as season 1. When the root's TVDB
 // series is known, the chain keeps only entries of that series, plus entries Fribb
 // doesn't know at all (announced, not mapped yet) that directly follow or precede
 // one of them. Entries Fribb places in another series, or in none, are dropped.

@@ -14,7 +14,7 @@ AniMoku implements the [Plex Metadata Providers](https://github.com/plexinc/tmdb
 
 Plex sends the show's title, year and a filename. AniMoku:
 
-1. **Looks for a precise hint first.** A guid from an earlier match, or an id tag in the folder name such as `{tvdb-267440}` (see [folder name tags](configuration.md#folder-name-tags)), resolves straight to an entry.
+1. **Looks for a precise hint first.** A guid from an earlier match, or an id tag in the folder name such as `{tvdb-123456}` (see [folder name tags](configuration.md#folder-name-tags)), resolves straight to an entry.
 2. **Parses the filename.** It understands `S02E05`, fansub-style absolute numbers (`[Group] Show - 105 [1080p].mkv`), `S2 - 05` and dated episodes.
 3. **Searches AniList and, if configured, TMDB in parallel.** Candidates are scored against all three AniList titles (English, romaji, native), so a romaji filename still finds the entry whose display title is English. On equal scores AniList wins, so an anime that TMDB also lists keeps its AniList seasons.
 4. **Folds TMDB duplicates into AniList.** A TMDB result that the crosswalk maps to an AniList entry is that entry: it's dropped when the AniList entry is also listed, and replaced by it when it would be the automatic match. So an anime is never matched to TMDB just because TMDB found the folder name first.
@@ -28,7 +28,7 @@ AniList makes a separate entry for every season, and often for every cour. AniMo
 
 ### TVDB-aligned season numbering
 
-Release filenames, Sonarr and Jellyfin number seasons the TVDB way. For example, Fire Force's "San no Shou" and "San no Shou Part 2" are two AniList entries, but they make up TVDB season 3, episodes 1–12 and 13–25.
+Release filenames, Sonarr and Jellyfin number seasons the TVDB way. For example, a third season and its "Part 2" are often two AniList entries, but they make up TVDB season 3, episodes 1–12 and 13–25.
 
 AniMoku uses the `season.tvdb` and `episode_offset.tvdb` fields of the Fribb crosswalk to place every entry where TVDB puts it:
 
@@ -36,7 +36,7 @@ AniMoku uses the `season.tvdb` and `episode_offset.tvdb` fields of the Fribb cro
 - Entries that TVDB files under a different series are left out, because they belong in a different show folder.
 - Entries the crosswalk doesn't map yet, such as a season that has just started airing, follow the last mapped season.
 - Season 0 (TVDB specials) is supported and titled "Specials".
-- A movie, OVA or special joins a regular season only if the crosswalk puts it there. Attack on Titan's "Final Chapters" special, for instance, is TVDB S04E29.
+- A movie, OVA or special joins a regular season only if the crosswalk puts it there. A "Final Chapters" special, for instance, can be TVDB S04E29.
 
 Some long runners are a single AniList entry with hundreds of episodes that the crosswalk maps to no TVDB season, while TVDB splits them into arc seasons. For these, AniMoku reads TMDB's community "TVDB Order" episode group (TMDB credentials needed) and cuts the entry into the same seasons. For example, 366 episodes become seasons 1–16, and a sequel that TVDB files as season 17 stays there. Episodes keep their AniList number in their guid, so watch state survives the regrouping. If your files keep absolute numbers inside season folders (`Show - S02.E21`), set `FILE_NUMBERING=absolute`.
 
@@ -44,13 +44,13 @@ If the matched entry isn't in the crosswalk and TMDB has no such group, seasons 
 
 ### Absolute episode order
 
-HAMA with the Absolute Series Scanner numbered every episode of a franchise in one run (`S01E103`). To keep a library named that way, set `EPISODE_ORDER=absolute`, or tag a single show folder with `[absolute]` (`One Piece [absolute]`).
+HAMA with the Absolute Series Scanner numbered every episode of a franchise in one run (`S01E103`). To keep a library named that way, set `EPISODE_ORDER=absolute`, or tag a single show folder with `[absolute]` (`Show [absolute]`).
 
 In this order, all regular entries are merged into season 1 and numbered consecutively in TVDB order. Season 0 is unchanged. The order is chosen at match time and stored in the show's guid (`anilistabs-` instead of `anilist-`). So an existing show keeps its order even if `EPISODE_ORDER` changes. To switch it, add or remove the tag and use **Fix Match**.
 
 ## Episode titles, summaries and stills
 
-AniList has titles for only a fraction of episodes (One Piece: 69 of 1100+) and no episode summaries. AniMoku fills each episode in from:
+AniList has titles for only a fraction of episodes (a 1100+ episode long runner has fewer than 70) and no episode summaries. AniMoku fills each episode in from:
 
 - **TMDB**, in the library language (`X-Plex-Language`) with English fallback. TMDB, TVDB and AniList split seasons differently but in the same order, so episodes are looked up by their position among the franchise's regular episodes. An episode with an AniList air date re-anchors on the TMDB episode aired that day, which absorbs recaps counted by only one side. If several dated episodes of an entry match nothing, that entry's TMDB data is ignored.
 - **AniDB**, by episode number in the AniDB anime the crosswalk names. It provides titles in several languages, a summary and the air date.

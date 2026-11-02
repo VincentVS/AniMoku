@@ -21,18 +21,18 @@ function freshModule(path) {
 test('createMatchScore matches against english, romaji, and native titles, not just the resolved one', () => {
   const { createMatchScore } = freshModule('../src/providers/anilist');
 
-  const fireForce = {
-    title: { english: 'Fire Force', romaji: 'Enen no Shouboutai', native: '炎炎ノ消防隊' }
+  const flameBrigade = {
+    title: { english: 'Flame Brigade', romaji: 'Honoo no Shoubou', native: '炎ノ消防' }
   };
 
-  // A romaji filename search term must still score an exact match against Fire
-  // Force, even though English is the resolved/preferred title.
-  assert.equal(createMatchScore(fireForce, 'Enen no Shouboutai'), 100);
-  assert.equal(createMatchScore(fireForce, 'Fire Force'), 100);
+  // A romaji filename search term must still score an exact match against Flame
+  // Brigade, even though English is the resolved/preferred title.
+  assert.equal(createMatchScore(flameBrigade, 'Honoo no Shoubou'), 100);
+  assert.equal(createMatchScore(flameBrigade, 'Flame Brigade'), 100);
   // An unrelated show shouldn't get an exact-match bonus just because it shares
   // no titles with the search term.
   const unrelated = { title: { english: 'Some Other Show', romaji: null, native: null } };
-  assert.equal(createMatchScore(unrelated, 'Enen no Shouboutai'), 60);
+  assert.equal(createMatchScore(unrelated, 'Honoo no Shoubou'), 60);
 });
 
 test('AniList 403/429 responses log the response body message, distinguishing rate-limiting from a full API outage', async () => {
@@ -96,7 +96,7 @@ test('AniList retries on 429/403 with a reasonable retry-after header and succee
               pageInfo: { total: 1, currentPage: 1, perPage: 5, hasNextPage: false },
               media: [{
                 id: 15125,
-                title: { english: 'Fire Force', romaji: 'Enen', native: null },
+                title: { english: 'Flame Brigade', romaji: 'Honoo', native: null },
                 format: 'TV'
               }]
             }
@@ -104,7 +104,7 @@ test('AniList retries on 429/403 with a reasonable retry-after header and succee
         })
       };
     }, async () => {
-      const result = await searchMedia('Fire Force');
+      const result = await searchMedia('Flame Brigade');
       assert.equal(result.pageInfo.total, 1);
       assert.equal(result.media[0].id, 15125);
     });
@@ -378,7 +378,7 @@ test('TMDB provider is a no-op without TMDB_API_KEY set', async () => {
     const tmdb = freshModule('../src/providers/tmdb');
     assert.equal(tmdb.isConfigured(), false);
     assert.equal(await tmdb.getTvById(1), null);
-    assert.deepEqual(await tmdb.searchTv('Rick and Morty'), {
+    assert.deepEqual(await tmdb.searchTv('Space Family'), {
       media: [], pageInfo: { total: 0, currentPage: 1, perPage: 20, hasNextPage: false }
     });
     assert.deepEqual(await tmdb.getShowImages(1), {});
@@ -424,10 +424,10 @@ test('TMDB provider sends the v4 Read Access Token as an Authorization Bearer he
       assert.equal(options.headers?.Authorization, 'Bearer v4-token');
       // The v3 api_key query param must not be sent once a Bearer token is used.
       assert.equal(new URL(url).searchParams.has('api_key'), false);
-      return { ok: true, json: async () => ({ id: 1668, name: 'Rick and Morty' }) };
+      return { ok: true, json: async () => ({ id: 1668, name: 'Space Family' }) };
     }, async () => {
       const show = await tmdb.getTvById(1668);
-      assert.equal(show.title.english, 'Rick and Morty');
+      assert.equal(show.title.english, 'Space Family');
     });
   } finally {
     if (originalKey === undefined) { delete process.env.TMDB_API_KEY; } else { process.env.TMDB_API_KEY = originalKey; }
@@ -502,7 +502,7 @@ test('TMDB provider normalizes a show search result into the shared media shape'
         total_pages: 1,
         results: [{
           id: 1668,
-          name: 'Rick and Morty',
+          name: 'Space Family',
           overview: 'A sociopathic scientist and his grandson.',
           first_air_date: '2013-12-02',
           vote_average: 8.7,
@@ -512,10 +512,10 @@ test('TMDB provider normalizes a show search result into the shared media shape'
         }]
       })
     }), async () => {
-      const result = await tmdb.searchTv('Rick and Morty');
+      const result = await tmdb.searchTv('Space Family');
       assert.equal(result.media.length, 1);
       const [show] = result.media;
-      assert.equal(show.title.english, 'Rick and Morty');
+      assert.equal(show.title.english, 'Space Family');
       assert.equal(show.coverImage.large, 'https://image.tmdb.org/t/p/original/poster.jpg');
       assert.equal(show.bannerImage, 'https://image.tmdb.org/t/p/original/backdrop.jpg');
       assert.deepEqual(show.startDate, { year: 2013, month: 12, day: 2 });
@@ -604,7 +604,7 @@ function anilistEpisodesMock({ episodes, scheduleFails = false, totalScheduled =
     }
     return {
       ok: true,
-      json: async () => ({ data: { Media: { id: 21, title: { english: 'One Piece' }, episodes, startDate: { year: 1999 }, streamingEpisodes } } })
+      json: async () => ({ data: { Media: { id: 21, title: { english: 'Grand Voyage' }, episodes, startDate: { year: 1999 }, streamingEpisodes } } })
     };
   };
   return { fetchMock, requestedPages };
@@ -681,7 +681,7 @@ test('TMDB season episode lookups fail instead of returning an empty season', as
       if (href.includes('/content_ratings')) {
         return { ok: true, json: async () => ({ results: [] }) };
       }
-      return { ok: true, json: async () => ({ id: 1668, name: 'Rick and Morty', seasons: [{ season_number: 1 }] }) };
+      return { ok: true, json: async () => ({ id: 1668, name: 'Space Family', seasons: [{ season_number: 1 }] }) };
     }, async () => {
       await assert.rejects(tmdb.getEpisodesPage(1668, 1, 0, 50));
     });
@@ -703,7 +703,7 @@ test('AniList media lookups are cached, so a repeat call for the same id does no
     calls += 1;
     return {
       ok: true,
-      json: async () => ({ data: { Media: { id: 15125, title: { english: 'Fire Force' } } } })
+      json: async () => ({ data: { Media: { id: 15125, title: { english: 'Flame Brigade' } } } })
     };
   }, async () => {
     const first = await getMediaById(15125);
@@ -727,7 +727,7 @@ test('TMDB show lookups are cached, so a repeat call for the same id does not hi
       if (url.toString().includes('/content_ratings')) {
         return { ok: true, json: async () => ({ results: [] }) };
       }
-      return { ok: true, json: async () => ({ id: 88046, name: 'Fire Force' }) };
+      return { ok: true, json: async () => ({ id: 88046, name: 'Flame Brigade' }) };
     }, async () => {
       const first = await getTvById(88046);
       const callsAfterFirst = calls;

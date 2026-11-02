@@ -103,7 +103,7 @@ docker exec -it <plex_container> curl -s http://animoku:3000/health
 2. Plex reads `GET /` and lists the agent as **AniMoku**.
 3. In each anime library, choose the agent under **Edit library → Advanced**, then run **Refresh All Metadata**.
 
-The provider identifier is `tv.plex.agents.custom.animoku`. Guids look like `tv.plex.agents.custom.animoku://show/anilist-15125`. The identifier never changes, so existing matches survive upgrades.
+The provider identifier is `tv.plex.agents.custom.animoku`. Guids look like `tv.plex.agents.custom.animoku://show/anilist-12345`. The identifier never changes, so existing matches survive upgrades.
 
 ## Folder name tags
 
@@ -111,8 +111,8 @@ Tags in a show's folder name steer matching, following the convention used by HA
 
 | Tag | Effect |
 | --- | --- |
-| `{anilist-154587}` | Match this AniList entry directly |
-| `{tvdb-267440}`, `{anidb-9541}`, `{mal-5114}`, `{imdb-tt0944947}`, `{tmdb-1429}` | Map the id to AniList through the Fribb crosswalk. A TMDB id with no anime mapping is served from TMDB. |
+| `{anilist-12345}` | Match this AniList entry directly |
+| `{tvdb-123456}`, `{anidb-1234}`, `{mal-1234}`, `{imdb-tt1234567}`, `{tmdb-1234}` | Map the id to AniList through the Fribb crosswalk. A TMDB id with no anime mapping is served from TMDB. |
 | `[absolute]` | Use the absolute episode order for this show |
 | `[tvdb]` | Use the TVDB order for this show when `EPISODE_ORDER=absolute` |
 

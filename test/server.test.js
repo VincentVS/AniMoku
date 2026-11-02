@@ -210,7 +210,7 @@ test('server exposes Plex provider endpoints with AniList-shaped payloads', asyn
 
 const mockTmdbShow = {
   id: 1668,
-  name: 'Rick and Morty',
+  name: 'Space Family',
   overview: 'A sociopathic scientist and his grandson.',
   first_air_date: '2013-12-02',
   vote_average: 8.7,
@@ -335,16 +335,16 @@ test('server dispatches tmdb- rating keys to the TMDB provider for non-anime con
       const matches = await originalFetch(`${baseUrl}/library/metadata/matches`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Rick and Morty' })
+        body: JSON.stringify({ title: 'Space Family' })
       }).then((response) => response.json());
       const tmdbMatch = matches.MediaContainer.Metadata.find((entry) => entry.ratingKey.startsWith('tmdb-'));
       assert.ok(tmdbMatch, 'expected a tmdb- prefixed candidate in match results');
       assert.equal(tmdbMatch.ratingKey, 'tmdb-1668');
-      assert.equal(tmdbMatch.title, 'Rick and Morty');
+      assert.equal(tmdbMatch.title, 'Space Family');
 
       const show = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668`).then((response) => response.json());
       assert.equal(show.MediaContainer.Metadata[0].guid, 'tv.plex.agents.custom.animoku://show/tmdb-1668');
-      assert.equal(show.MediaContainer.Metadata[0].title, 'Rick and Morty');
+      assert.equal(show.MediaContainer.Metadata[0].title, 'Space Family');
 
       const showWithChildren = await originalFetch(`${baseUrl}/library/metadata/tmdb-1668?includeChildren=1`).then((response) => response.json());
       const embeddedSeasons = showWithChildren.MediaContainer.Metadata[0].Children;
@@ -424,14 +424,14 @@ test('server refuses automatic /matches (503) but keeps manual ones on TMDB when
       const automatic = await originalFetch(`${baseUrl}/library/metadata/matches`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Rick and Morty' })
+        body: JSON.stringify({ title: 'Space Family' })
       });
       assert.equal(automatic.status, 503);
 
       const response = await originalFetch(`${baseUrl}/library/metadata/matches`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Rick and Morty', manual: 1 })
+        body: JSON.stringify({ title: 'Space Family', manual: 1 })
       });
 
       assert.equal(response.status, 200);

@@ -8,7 +8,7 @@ const imagesCache = createCache();
 const episodesCache = createCache();
 
 // TMDB is the fallback provider for anything AniList doesn't cover - Western
-// cartoons (Rick and Morty, etc.), Western live-action TV, and any other show
+// cartoons, Western live-action TV, and any other show
 // that isn't in AniList's anime-only catalogue. Opt-in via either TMDB_API_KEY
 // (v3 "API Key", sent as the api_key query param) or TMDB_ACCESS_TOKEN (v4 "API
 // Read Access Token", sent as an Authorization: Bearer header) - TMDB's own docs

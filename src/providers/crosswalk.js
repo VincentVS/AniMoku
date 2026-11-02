@@ -40,7 +40,7 @@ function fetchIndex() {
     })
     .then((entries) => {
       const index = new Map();
-      // Reverse lookups (`tvdb:267440` -> [AniList ids]) for Plex's match `guid` hint.
+      // Reverse lookups (`tvdb:123456` -> [AniList ids]) for Plex's match `guid` hint.
       const byExternalId = new Map();
       for (const entry of entries) {
         if (!entry.anilist_id) {
@@ -182,8 +182,8 @@ async function findAnilistId(source, externalId) {
 }
 
 // The entry a franchise's show should be keyed on: TVDB season 1 of the series this
-// entry belongs to. A folder named after a sequel ("Mushoku Tensei II") or a romaji
-// title shared by every season ("Kaguya-sama wa Kokurasetai") otherwise matches a
+// entry belongs to. A folder named after a sequel ("Some Show II") or a romaji
+// title shared by every season (the same romaji name) otherwise matches a
 // later season's entry, and the show takes that season's title, year and poster.
 // Returns the entry itself when it already is season 1, null when it isn't mapped.
 async function findFranchiseRoot(anilistId) {

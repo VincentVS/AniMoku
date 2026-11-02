@@ -71,7 +71,7 @@ function resolveSearchInput(type, body, parsedFilename) {
   return { term: term || normalizeTitle(parsedFilename.title || ''), year };
 }
 
-// "[anilist-15125]", "{tvdb-267440}", "[anidb=9541]": the folder-tag convention HAMA
+// "[anilist-12345]", "{tvdb-123456}", "[anidb=1234]": the folder-tag convention HAMA
 // and Plex's own agents use to pin a series. Plex only passes `guid` once an item has
 // been matched, so on the first scan these tags are the only precise hint available.
 const ID_TAG_PATTERN = /[[{](anilist|anidb|tvdb|tmdb|imdb|mal)[-=](tt\d+|\d+)[\]}]/gi;
@@ -136,7 +136,7 @@ const GUID_SOURCES = {
 };
 
 // `guid` is Plex's precise-match hint: one of our own guids on a refresh, or an
-// external id such as `tvdb://267440` (e.g. from a `{tvdb-267440}` folder tag).
+// external id such as `tvdb://123456` (e.g. from a `{tvdb-123456}` folder tag).
 // External ids are mapped to AniList through the Fribb crosswalk; a TMDB id with no
 // anime mapping falls back to the TMDB provider. Returns { provider, id } or null.
 async function resolveGuidHint(guid) {
@@ -281,11 +281,11 @@ async function findShows({
 }
 
 // Re-keys an AniList search hit on its franchise's first season, so a folder named
-// after a sequel ("Mushoku Tensei II", "Oshi no Ko Season 2") still yields the show
+// after a sequel ("Some Show II", "Some Show Season 2") still yields the show
 // as a whole - title, year and poster of season 1, and one ratingKey/guid whichever
 // season's folder name Plex happened to search with. Only the Fribb crosswalk is
-// trusted for this: the AniList PREQUEL chain also links distinct shows (Naruto ->
-// Naruto Shippuden), which Plex libraries keep as separate series. Explicit hints
+// trusted for this: the AniList PREQUEL chain also links distinct shows (a series ->
+// its sequel series), which Plex libraries keep as separate series. Explicit hints
 // (guid, folder id tags) are never re-keyed: they say which entry was meant.
 async function toFranchiseRoot(candidate) {
   if (candidate.provider !== 'anilist' || candidate.hinted) {

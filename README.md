@@ -30,7 +30,7 @@ Plex's built-in agents number anime the way Western TV databases do, and HAMA no
 
 | | |
 | --- | --- |
-| 🎯 **Smart matching** | AniList search scored against English, romaji and native titles. Understands release filenames (`[Group] Show - 05 [1080p].mkv`, `S02E05`, dated episodes) and folder tags such as `{tvdb-267440}` or `[anilist-15125]`. |
+| 🎯 **Smart matching** | AniList search scored against English, romaji and native titles. Understands release filenames (`[Group] Show - 05 [1080p].mkv`, `S02E05`, dated episodes) and folder tags such as `{tvdb-123456}` or `[anilist-12345]`. |
 | 🗂️ **Seasons that match your files** | Split cours are merged into TVDB seasons (`S03E13`), the numbering Sonarr and Jellyfin use. Prefer one long run? Use the [absolute order](docs/how-it-works.md#absolute-episode-order) (`S01E103`), globally or per show. |
 | 📝 **Real episode metadata** | Titles, summaries, air dates and stills from TMDB (in your library's language) and AniDB, with AniList as the fallback. |
 | 🖼️ **Richer artwork** | Per-season posters, backgrounds, clear logos and square art from Fanart.tv and TMDB. |
@@ -83,8 +83,8 @@ Requires **Plex Media Server 1.43** or newer, and Plex must be able to reach the
 3. Run **Refresh All Metadata** on the library.
 
 > [!TIP]
-> To pin a show to a specific entry, add an id tag to its folder name: `Frieren (2023) {anilist-154587}`.
-> To use one long episode run for a single show, add `[absolute]`: `One Piece [absolute]`.
+> To pin a show to a specific entry, add an id tag to its folder name: `Show (2023) {anilist-12345}`.
+> To use one long episode run for a single show, add `[absolute]`: `Show [absolute]`.
 
 ## ⚙️ Configuration
 
