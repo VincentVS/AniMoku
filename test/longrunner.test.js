@@ -261,6 +261,16 @@ test('episode matching reads ambiguous numbers as absolute only with FILE_NUMBER
       const absolute = await postMatch(baseUrl, episode);
       assert.equal(absolute.body.MediaContainer.Metadata[0].ratingKey.startsWith('anilist-700-e04'), true);
 
+      // Plex pairs files with the season's episodes by index: season 2 (AniList 4-8)
+      // must list them as 4-8, the numbers its files carry.
+      const season2 = await getMetadata(baseUrl, 'anilist-700-s2');
+      assert.deepEqual(season2.body.MediaContainer.Metadata[0].Children.Metadata.map((item) => item.index), [4, 5, 6, 7, 8]);
+      const pastSeason1 = await postMatch(baseUrl, { ...episode, index: 6 });
+      assert.equal(pastSeason1.body.MediaContainer.Metadata[0].ratingKey.startsWith('anilist-700-e06'), true);
+      // A season-relative file in such a library is still found by its position.
+      const relativeFile = await postMatch(baseUrl, { ...episode, index: 2 });
+      assert.equal(relativeFile.body.MediaContainer.Metadata[0].ratingKey.startsWith('anilist-700-e05'), true);
+
       // An index past the season can only be absolute, whatever the setting.
       delete process.env.FILE_NUMBERING;
       const pastSeason = await postMatch(baseUrl, { ...episode, index: 9 });

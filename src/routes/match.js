@@ -10,7 +10,9 @@ const {
 } = require('../utils/guid');
 const { parseAnimeFilename, normalizeTitle } = require('../utils/filenameParser');
 const { buildDate, resolveTitle, stripHtml } = require('../utils/mapping');
-const { SERIES_FORMATS, getAllSeasons, getAllEpisodes } = require('../utils/childData');
+const {
+  SERIES_FORMATS, fileNumbersAreAbsolute, getAllSeasons, getAllEpisodes
+} = require('../utils/childData');
 const { resolveRequestLanguage } = require('../utils/language');
 const providerConfig = require('../../config/provider.json');
 
@@ -91,10 +93,6 @@ function findOrderTag(...texts) {
     }
   }
   return null;
-}
-
-function fileNumbersAreAbsolute() {
-  return String(process.env.FILE_NUMBERING || '').trim().toLowerCase() === 'absolute';
 }
 
 function defaultEpisodeOrder() {
@@ -382,10 +380,10 @@ async function loadSeasonEpisodes(show, season, language) {
 // 2 episode 6): when season 1 has no such episode, the index is counted across the
 // regular seasons in order. Sonarr's TVDB season folders can keep absolute numbers too
 // ("S02E25" after a 24-episode season 1): a later season falls back the same way, but
-// only for an index past season 1, which a season-relative number never is. When an
-// index fits both ways (S02E21 with 20 episodes in season 1 and 21 in season 2), the
-// season-relative reading wins unless FILE_NUMBERING=absolute says the library names
-// files with absolute numbers (Sonarr's "S02.E21" with {absolute} as the episode).
+// only for an index past season 1, which a season-relative number never is. With
+// FILE_NUMBERING=absolute the seasons' episodes already carry absolute indexes (see
+// displayOffset), so the direct lookup reads S02.E21 as absolute; a season-relative
+// file in such a library (S02E02) is then found by its position in the season.
 // The absolute order has a single regular season, so the file's season is ignored there.
 // `date` is the protocol's fallback when there's no index.
 async function findEpisode(show, { parentIndex, index, date }, language) {
@@ -413,10 +411,13 @@ async function findEpisode(show, { parentIndex, index, date }, language) {
     const firstSeasonLength = regularSeasons.length
       ? (await loadSeasonEpisodes(show, regularSeasons[0], language)).length
       : 0;
+    const findRelative = async () => {
+      const season = seasons.find((entry) => entry.index === seasonNumber);
+      return season && (await loadSeasonEpisodes(show, season, language)).sort((a, b) => a.index - b.index)[index - 1];
+    };
+
     const absoluteAllowed = seasonNumber === 1 || index > firstSeasonLength;
-    const lookups = absoluteAllowed && seasonNumber > 1 && fileNumbersAreAbsolute()
-      ? [findAbsolute, findDirect]
-      : [findDirect, ...(absoluteAllowed ? [findAbsolute] : [])];
+    const lookups = [findDirect, ...(absoluteAllowed ? [findAbsolute] : []), ...(fileNumbersAreAbsolute() ? [findRelative] : [])];
     for (const lookup of lookups) {
       const episode = await lookup();
       if (episode) {

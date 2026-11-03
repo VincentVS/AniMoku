@@ -225,9 +225,18 @@ function partHolds(part, episodeNumber) {
   return episodeNumber > start && (part.length == null || episodeNumber <= start + part.length);
 }
 
-// Added to an entry's own episode number to get its index in the season.
+// FILE_NUMBERING=absolute: files keep absolute numbers inside TVDB season folders
+// (Sonarr's "S02.E21" with {absolute} as the episode).
+function fileNumbersAreAbsolute() {
+  return String(process.env.FILE_NUMBERING || '').trim().toLowerCase() === 'absolute';
+}
+
+// Added to an entry's own episode number to get its index in the season. Plex pairs
+// files with a season's episodes by index, so with FILE_NUMBERING=absolute a regular
+// season's episodes carry their absolute number (season 2 runs 21-41, not 1-21).
 function displayOffset(part) {
-  return part.offset - (part.start || 0);
+  const offset = fileNumbersAreAbsolute() && part.absoluteOffset !== undefined ? part.absoluteOffset : part.offset;
+  return offset - (part.start || 0);
 }
 
 // Adds to every part what numbering it across sources needs:
@@ -461,6 +470,7 @@ async function resolveEpisodePlacement(rootId, seasonAnilistId, provider = 'anil
 
 module.exports = {
   SERIES_FORMATS,
+  fileNumbersAreAbsolute,
   layoutOrder,
   resolveSeasonLayout,
   findLayoutSeason,
