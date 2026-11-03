@@ -39,9 +39,13 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      # Pull requests from this repository publish pr-N; a fork's token can't write packages.
+      # Pull requests from this repository publish pr-NNN; a fork's token can't write packages.
       - id: publish
-        run: echo "push=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}" >> "$GITHUB_OUTPUT"
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "push=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$PR_NUMBER" ]; then printf 'pr-tag=pr-%03d\n' "$PR_NUMBER" >> "$GITHUB_OUTPUT"; fi
 
       - uses: docker/login-action@v3
         if: steps.publish.outputs.push == 'true'
@@ -50,7 +54,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # main → edge; v1.2.3 → 1.2.3, 1.2, latest; PR #N → pr-N; every build → sha-<short>
+      # main → edge; v1.2.3 → 1.2.3, 1.2, latest; PR #1 → pr-001; every build → sha-<short>
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -59,7 +63,7 @@ jobs:
             type=edge,branch=main
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=ref,event=pr
+            type=raw,value=${{ steps.publish.outputs.pr-tag }},enable=${{ github.event_name == 'pull_request' }}
             type=sha
           labels: |
             org.opencontainers.image.title=AniMoku
