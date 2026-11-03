@@ -194,11 +194,14 @@ function seasonTitle(seasonNumber) {
   return Number(seasonNumber) === 0 ? 'Specials' : `Season ${seasonNumber}`;
 }
 
-function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider = 'anilist') {
+// `poster` replaces the entry's AniList cover (kept as an alternative): seasons cut
+// from one AniList entry would otherwise all show the same one.
+function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider = 'anilist', { poster } = {}) {
   const seasonAnilistId = media.id !== rootMedia.id ? media.id : undefined;
   const ratingKey = buildRatingKey('season', rootMedia.id, seasonNumber, seasonAnilistId, provider);
   const parentRatingKey = buildRatingKey('show', rootMedia.id, undefined, undefined, provider);
-  const imageSet = createImageSet(media);
+  const entryImages = createImageSet(media);
+  const imageSet = poster ? { ...entryImages, coverPoster: poster } : entryImages;
   const parentTitle = resolveTitle(rootMedia);
   const studioNames = resolveStudioNames(media);
   const rating = createRatingArray(media);
@@ -228,7 +231,7 @@ function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider 
     parentTitle,
     index: seasonNumber,
     images: imageSet,
-    Image: createImageArray(imageSet, seasonTitle(seasonNumber))
+    Image: createImageArray(imageSet, seasonTitle(seasonNumber), { posters: [entryImages.coverPoster] })
   };
 }
 

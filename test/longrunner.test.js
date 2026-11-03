@@ -134,6 +134,10 @@ function installBackend({ search = {} } = {}) {
     if (href.includes('anime-lists')) {
       return { ok: true, json: async () => FRIBB };
     }
+    if (href.startsWith('https://webservice.fanart.tv/v3/tv/800')) {
+      const seasonposter = ['1', '2', '3', '4', 'all'].map((season) => ({ season, url: `https://fanart/s${season}.jpg` }));
+      return { ok: true, json: async () => ({ seasonposter }) };
+    }
     if (href.startsWith('https://api.themoviedb.org')) {
       const data = tmdbResponse(new URL(href));
       if (!data) {
@@ -211,6 +215,32 @@ test('a long runner with no TVDB season is cut into TVDB seasons by TMDB\'s TVDB
       assert.equal(finalArc[0].title, 'TMDB 2x1');
     });
   } finally {
+    backend.restore();
+  }
+});
+
+test('a long runner\'s seasons cut from one AniList entry take their Fanart.tv season poster', async () => {
+  const backend = installBackend();
+  const original = process.env.FANART_API_KEY;
+  process.env.FANART_API_KEY = 'test';
+  try {
+    await withServer(async (baseUrl) => {
+      const show = await getMetadata(baseUrl, 'anilist-700');
+      const posters = show.body.MediaContainer.Metadata[0].Children.Metadata
+        .map((season) => season.Image.find((image) => image.type === 'coverPoster').url);
+      // Seasons 1-3 share entry 700's cover; season 4 is entry 701 and keeps its own.
+      assert.deepEqual(posters, ['https://fanart/s1.jpg', 'https://fanart/s2.jpg', 'https://fanart/s3.jpg', 'https://img/701.jpg']);
+
+      const season2 = await getMetadata(baseUrl, 'anilist-700-s2');
+      const images = season2.body.MediaContainer.Metadata[0].Image.filter((image) => image.type === 'coverPoster');
+      assert.deepEqual(images.map((image) => image.url), ['https://fanart/s2.jpg', 'https://img/700.jpg']);
+    });
+  } finally {
+    if (original === undefined) {
+      delete process.env.FANART_API_KEY;
+    } else {
+      process.env.FANART_API_KEY = original;
+    }
     backend.restore();
   }
 });

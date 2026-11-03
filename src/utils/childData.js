@@ -1,6 +1,7 @@
 const { resolveSeasonChainWithDetours, getEpisodesPage } = require('../providers/anilist');
 const tmdb = require('../providers/tmdb');
 const { getTvdbPlacement, getTmdbPlacement, getExternalIds } = require('../providers/crosswalk');
+const { getSeasonPoster } = require('../providers/fanart');
 const anidb = require('../providers/anidb');
 const { mapSeasonMetadata, mapEpisodeMetadata } = require('./mapping');
 const { DEFAULT_LANGUAGE } = require('./language');
@@ -341,6 +342,18 @@ function findLayoutSeason(layout, rootId, seasonNumber, seasonAnilistId) {
   return season;
 }
 
+// A long runner's TVDB seasons are all cut from the root entry, so they'd all get its
+// AniList cover: those take Fanart.tv's poster for their TVDB season instead, when the
+// layout follows TVDB's numbering. A season of its own AniList entry keeps its cover.
+async function resolveSeasonPoster(layout, season) {
+  const rootId = layout.rootMedia.id;
+  const sharing = layout.seasons.filter((entry) => entry.seasonNumber > 0 && entry.parts[0].media.id === rootId);
+  if (!layout.aligned || sharing.length < 2 || !sharing.includes(season)) {
+    return null;
+  }
+  return getSeasonPoster((await getExternalIds(rootId)).tvdb, season.seasonNumber);
+}
+
 // Shared by routes/children.js (paginated /children endpoint) and routes/metadata.js
 // (Plex's includeChildren=1 embed, which requires every season back with no paging -
 // see docs/Metadata.md in plexinc/tmdb-example-provider: "it is expected that all the
@@ -369,12 +382,16 @@ async function getAllSeasons(provider, rootId, language = DEFAULT_LANGUAGE) {
   }
 
   anidb.prefetch(layout.seasons.flatMap((season) => season.parts.map((part) => part.anidb?.aid)));
-  const localizedRoot = await localizeMedia(layout.rootMedia, language);
-  const seasons = layout.seasons.map((season) => mapSeasonMetadata(
+  const [localizedRoot, posters] = await Promise.all([
+    localizeMedia(layout.rootMedia, language),
+    Promise.all(layout.seasons.map((season) => resolveSeasonPoster(layout, season)))
+  ]);
+  const seasons = layout.seasons.map((season, index) => mapSeasonMetadata(
     season.parts[0].media.id === layout.rootMedia.id ? localizedRoot : season.parts[0].media,
     season.seasonNumber,
     localizedRoot,
-    provider
+    provider,
+    { poster: posters[index] }
   ));
   return { rootMedia: layout.rootMedia, seasons };
 }
@@ -446,6 +463,7 @@ module.exports = {
   layoutOrder,
   resolveSeasonLayout,
   findLayoutSeason,
+  resolveSeasonPoster,
   getAllSeasons,
   getAllEpisodes,
   resolveEpisodePlacement

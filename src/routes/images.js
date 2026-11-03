@@ -5,6 +5,9 @@ const { getFanartImages } = require('../providers/fanart');
 const tmdb = require('../providers/tmdb');
 const { createImageArray, createImageSet, resolveTitle } = require('../utils/mapping');
 const { parseRatingKey } = require('../utils/guid');
+const {
+  resolveSeasonLayout, findLayoutSeason, layoutOrder, resolveSeasonPoster
+} = require('../utils/childData');
 const { resolveRequestLanguage } = require('../utils/language');
 const providerConfig = require('../../config/provider.json');
 
@@ -36,6 +39,16 @@ async function resolveGallery(provider, rootId, type, seasonNumber) {
   return images || {};
 }
 
+// Same first poster as the season's metadata (see resolveSeasonPoster).
+async function resolveLongRunnerPoster(provider, parsed) {
+  if (provider === 'tmdb' || parsed.type !== 'season') {
+    return null;
+  }
+  const layout = await resolveSeasonLayout(parsed.rootId, layoutOrder(provider));
+  const season = findLayoutSeason(layout, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId);
+  return season ? resolveSeasonPoster(layout, season) : null;
+}
+
 router.get('/:id/images', async (req, res, next) => {
   try {
     const parsed = parseRatingKey(req.params.id);
@@ -47,9 +60,13 @@ router.get('/:id/images', async (req, res, next) => {
       return res.status(404).json({ error: 'Metadata not found' });
     }
 
-    const imageSet = createImageSet(media, parsed.episodeNumber);
+    const entryImages = createImageSet(media, parsed.episodeNumber);
+    const poster = await resolveLongRunnerPoster(provider, parsed);
+    const imageSet = poster ? { ...entryImages, coverPoster: poster } : entryImages;
     const gallery = await resolveGallery(provider, parsed.rootId, parsed.type, parsed.seasonNumber);
-    const imageList = createImageArray(imageSet, resolveTitle(media), gallery);
+    const imageList = createImageArray(imageSet, resolveTitle(media), {
+      ...gallery, posters: [entryImages.coverPoster, ...(gallery.posters || [])]
+    });
 
     return res.json({
       MediaContainer: {

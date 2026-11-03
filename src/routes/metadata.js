@@ -5,7 +5,8 @@ const { mapEpisodeMetadata, mapSeasonMetadata, mapShowMetadata } = require('../u
 const { buildRatingKey, parseRatingKey } = require('../utils/guid');
 const { getExternalIds } = require('../providers/crosswalk');
 const {
-  getAllSeasons, getAllEpisodes, resolveEpisodePlacement, resolveSeasonLayout, findLayoutSeason, layoutOrder
+  getAllSeasons, getAllEpisodes, resolveEpisodePlacement, resolveSeasonLayout, findLayoutSeason, layoutOrder,
+  resolveSeasonPoster
 } = require('../utils/childData');
 const { resolveRequestLanguage } = require('../utils/language');
 const { localizeMedia } = require('../utils/localize');
@@ -62,11 +63,14 @@ router.get('/:id', async (req, res, next) => {
         metadata.Children = { size: seasonsResult.seasons.length, Metadata: seasonsResult.seasons };
       }
     } else if (parsed.type === 'season') {
+      let poster = null;
       if (provider !== 'tmdb') {
         const layout = await resolveSeasonLayout(parsed.rootId, layoutOrder(provider));
-        if (!findLayoutSeason(layout, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId)) {
+        const layoutSeason = findLayoutSeason(layout, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId);
+        if (!layoutSeason) {
           return res.status(404).json({ error: 'Metadata not found' });
         }
+        poster = await resolveSeasonPoster(layout, layoutSeason);
       }
       const media = await resolveSeasonMedia(provider, parsed, language);
       if (!media) {
@@ -79,7 +83,7 @@ router.get('/:id', async (req, res, next) => {
         // Seasons cut from the root entry (a long runner's TVDB seasons) share its synopsis.
         const localizedRoot = await localizeMedia(rootMedia, language);
         const seasonMedia = media.id === rootMedia.id ? localizedRoot : media;
-        metadata = mapSeasonMetadata(seasonMedia, parsed.seasonNumber, localizedRoot, provider);
+        metadata = mapSeasonMetadata(seasonMedia, parsed.seasonNumber, localizedRoot, provider, { poster });
       }
       if (includeChildren) {
         const episodesResult = await getAllEpisodes(provider, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId, language);
