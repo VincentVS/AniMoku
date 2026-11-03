@@ -1,14 +1,16 @@
 const express = require('express');
 const { searchMedia, createMatchScore, getMediaById } = require('../providers/anilist');
 const tmdb = require('../providers/tmdb');
-const { findAnilistId, findFranchiseRoot } = require('../providers/crosswalk');
+const {
+  findAnilistId, findFranchiseRoot, getExternalIds, getTmdbPlacement
+} = require('../providers/crosswalk');
 const logger = require('../utils/logger');
 const {
   SCHEME, ABSOLUTE_PROVIDER, buildRatingKey, createGuid, parseRatingKey, isAbsoluteOrder
 } = require('../utils/guid');
 const { parseAnimeFilename, normalizeTitle } = require('../utils/filenameParser');
 const { buildDate, resolveTitle, stripHtml } = require('../utils/mapping');
-const { getAllSeasons, getAllEpisodes } = require('../utils/childData');
+const { SERIES_FORMATS, getAllSeasons, getAllEpisodes } = require('../utils/childData');
 const { resolveRequestLanguage } = require('../utils/language');
 const providerConfig = require('../../config/provider.json');
 
@@ -325,14 +327,30 @@ function dedupeCandidates(candidates) {
 
 // "[AniList · TV · 24 ep]": AniList and TMDB often list a show under the same title
 // and year, and Plex's Fix Match list shows little else to tell them apart.
-function candidateLabel(provider, media) {
+function candidateLabel(provider, media, episodeCount = media.episodes) {
   const source = provider === 'tmdb' ? 'TMDB' : 'AniList';
   const format = media.format ? media.format.replace(/_/g, ' ') : null;
-  const episodes = media.episodes ? `${media.episodes} ep` : null;
+  const episodes = episodeCount ? `${episodeCount} ep` : null;
   return `[${[source, format, episodes].filter(Boolean).join(' · ')}]`;
 }
 
-function toShowCandidate({ provider, media, score }, extras) {
+// An AniList candidate is a franchise's first entry, but stands for the whole show
+// with every sequel season: its episode count is that of the TMDB show the crosswalk
+// maps it to, which spans the whole series (only TMDB's season count would differ
+// from TVDB's). Falls back to the entry's own count; a TMDB candidate already has it.
+async function seriesEpisodeCount({ provider, media }, language) {
+  if (provider === 'tmdb' || !SERIES_FORMATS.has(media.format)) {
+    return media.episodes;
+  }
+  const placement = await getTmdbPlacement(media.id);
+  const tmdbId = placement
+    ? (placement.season === 1 && !placement.episodeOffset ? placement.tmdbId : null)
+    : (await getExternalIds(media.id)).tmdb;
+  const show = tmdbId ? await tmdb.getTvById(tmdbId, language) : null;
+  return Math.max(show?.episodes || 0, media.episodes || 0) || null;
+}
+
+function toShowCandidate({ provider, media, score }, extras, episodeCount) {
   const ratingKey = buildRatingKey('show', media.id, undefined, undefined, provider);
   const title = resolveTitle(media);
   return {
@@ -341,7 +359,7 @@ function toShowCandidate({ provider, media, score }, extras) {
     key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('show', ratingKey),
     // Only on manual lists: an automatic match's title is what Plex stores.
-    title: extras?.manual ? `${title} ${candidateLabel(provider, media)}` : title,
+    title: extras?.manual ? `${title} ${candidateLabel(provider, media, episodeCount)}` : title,
     originalTitle: media.title?.romaji || null,
     summary: stripHtml(media.description || ''),
     year: media.startDate?.year || null,
@@ -451,9 +469,10 @@ async function resolveMatches(type, body, language) {
   )).map((candidate) => applyEpisodeOrder(candidate, tagOrder)));
 
   if (type === 'show') {
-    const metadata = eligible.map((show) => toShowCandidate(show, {
+    const episodeCounts = manual ? await Promise.all(eligible.map((show) => seriesEpisodeCount(show, language))) : [];
+    const metadata = eligible.map((show, index) => toShowCandidate(show, {
       manual, filename: body.filename || null, parsed: parsedFilename
-    }));
+    }, episodeCounts[index]));
     if (includeChildren && metadata.length === 1) {
       const seasons = await getAllSeasons(eligible[0].provider, eligible[0].media.id, language);
       if (seasons) {

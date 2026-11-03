@@ -71,6 +71,7 @@ function tmdbShow(name = 'Longrun') {
     name,
     overview: 'Summary TMDB',
     first_air_date: '2004-10-05',
+    number_of_episodes: 13,
     seasons: [0, 1, 2].map((n) => ({ season_number: n, episode_count: TMDB_SEASONS[n] || 0 })),
     external_ids: { tvdb_id: 800 }
   };
@@ -285,11 +286,12 @@ test('TMDB hits the crosswalk maps to AniList are folded into the AniList entry'
       assert.equal(automatic.body.MediaContainer.Metadata[0].ratingKey, 'anilist-700');
       assert.equal(automatic.body.MediaContainer.Metadata[0].title, 'Longrun');
 
-      // A manual list keeps one entry per show, labelled with its provider.
+      // A manual list keeps one entry per show, labelled with its provider and the
+      // episodes of the whole series (TMDB's 13), not of the first entry alone (9).
       const manual = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
       assert.deepEqual(
         manual.body.MediaContainer.Metadata.map((show) => [show.ratingKey, show.title]),
-        [['anilist-700', 'Longrun [AniList · TV · 9 ep]']]
+        [['anilist-700', 'Longrun [AniList · TV · 13 ep]']]
       );
     });
   } finally {

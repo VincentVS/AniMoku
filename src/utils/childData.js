@@ -460,6 +460,7 @@ async function resolveEpisodePlacement(rootId, seasonAnilistId, provider = 'anil
 }
 
 module.exports = {
+  SERIES_FORMATS,
   layoutOrder,
   resolveSeasonLayout,
   findLayoutSeason,
