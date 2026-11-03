@@ -306,13 +306,15 @@ async function getRegularEpisodes(id, language = 'en-US') {
 }
 
 // TVDB season number of an episode group's group: "Season 3" -> 3, "Specials" -> 0,
-// an unnumbered name (an arc title) -> its position among the regular groups.
+// any other name (an arc title) -> its position among the regular groups. Only a
+// "Season N" or bare "N" name counts as numbered: arc titles carry numbers of their own
+// ("Gotei 13 Invading Army Arc" is TVDB season 15, not 13).
 function groupSeasonNumber(group, regularPosition) {
-  const name = String(group.name || '');
+  const name = String(group.name || '').trim();
   if (/special/i.test(name)) {
     return 0;
   }
-  const number = /(\d+)/.exec(name);
+  const number = /\bseason\s*(\d+)\b/i.exec(name) || /^(\d+)$/.exec(name);
   return number ? Number(number[1]) : regularPosition;
 }
 

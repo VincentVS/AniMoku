@@ -116,8 +116,9 @@ function tmdbResponse(url) {
       groups: [
         { name: 'Specials', order: 0, episodes: [] },
         { name: 'Season 1', order: 1, episodes: groupEpisodes(1, 1, 3) },
-        { name: 'Season 2', order: 2, episodes: groupEpisodes(1, 4, 8) },
-        { name: 'Season 3', order: 3, episodes: groupEpisodes(1, 9, 9) },
+        // Arc titles: numbered by position, a number in the title is not the season.
+        { name: 'Guard 13 Invasion Arc', order: 2, episodes: groupEpisodes(1, 4, 8) },
+        { name: 'The Past Arc', order: 3, episodes: groupEpisodes(1, 9, 9) },
         { name: 'Season 4', order: 4, episodes: groupEpisodes(2, 1, 4) }
       ]
     };
