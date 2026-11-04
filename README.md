@@ -97,6 +97,8 @@ Configuration is done through environment variables. Everything is optional.
 | `ANIDB_CLIENT` + `ANIDB_CLIENTVER` | AniDB episode titles in many languages, summaries and air dates |
 | `EPISODE_ORDER` | `tvdb` (default) or `absolute` |
 | `FILE_NUMBERING` | `absolute` when files keep absolute numbers in season folders (`S02.E21`) |
+| `MATCH_LABEL_SOURCE` | `true` to label Fix Match results with provider and format |
+| `MATCH_LABEL_EPISODES` | `true` to label Fix Match results with the episode count |
 | `TITLE_LANGUAGE_ORDER` | Show title priority, default `localized,english,romaji,native` (`localized` = library language via TMDB) |
 
 See **[docs/configuration.md](docs/configuration.md)** for the complete list, defaults and deployment recipes.

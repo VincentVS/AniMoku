@@ -238,7 +238,6 @@ test('a sequel Fribb files past a gap follows the long runner\'s last TVDB seaso
   assert.deepEqual(contiguous.map((part) => part.seasonNumber), [16, 17, 17]);
 });
 
-
 test('a long runner\'s seasons cut from one AniList entry take their Fanart.tv season poster', async () => {
   const backend = installBackend();
   const original = process.env.FANART_API_KEY;
@@ -315,15 +314,30 @@ test('TMDB hits the crosswalk maps to AniList are folded into the AniList entry'
       assert.equal(automatic.body.MediaContainer.Metadata[0].ratingKey, 'anilist-700');
       assert.equal(automatic.body.MediaContainer.Metadata[0].title, 'Longrun');
 
-      // A manual list keeps one entry per show, labelled with its provider and the
-      // episodes of the whole series (TMDB's 13), not of the first entry alone (9).
-      const manual = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
+      // A manual list keeps one entry per show, clean by default...
+      const plain = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
       assert.deepEqual(
-        manual.body.MediaContainer.Metadata.map((show) => [show.ratingKey, show.title]),
-        [['anilist-700', 'Longrun [AniList · TV · 13 ep]']]
+        plain.body.MediaContainer.Metadata.map((show) => [show.ratingKey, show.title]),
+        [['anilist-700', 'Longrun']]
       );
+
+      // ...labelled on request with its provider and format, and with the episodes of
+      // the whole series (TMDB's 13), not of the first entry alone (9).
+      process.env.MATCH_LABEL_SOURCE = 'true';
+      const source = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
+      assert.equal(source.body.MediaContainer.Metadata[0].title, 'Longrun [AniList · TV]');
+
+      process.env.MATCH_LABEL_EPISODES = 'true';
+      const both = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
+      assert.equal(both.body.MediaContainer.Metadata[0].title, 'Longrun [AniList · TV · 13 ep]');
+
+      delete process.env.MATCH_LABEL_SOURCE;
+      const episodes = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
+      assert.equal(episodes.body.MediaContainer.Metadata[0].title, 'Longrun [13 ep]');
     });
   } finally {
+    delete process.env.MATCH_LABEL_SOURCE;
+    delete process.env.MATCH_LABEL_EPISODES;
     backend.restore();
   }
 });
@@ -340,7 +354,6 @@ test('a long runner\'s sequel entry is folded into the long runner, which has no
     backend.restore();
   }
 });
-
 
 test('a non-English library gets the show title and synopsis from TMDB translations', async () => {
   const backend = installBackend();

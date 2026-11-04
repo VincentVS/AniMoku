@@ -20,6 +20,8 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 | --- | --- | --- |
 | `EPISODE_ORDER` | `tvdb` | `tvdb` numbers seasons as TVDB, Sonarr and Jellyfin do (`S03E13`). `absolute` puts every regular episode in season 1 (`S01E103`). See [Absolute episode order](how-it-works.md#absolute-episode-order). |
 | `FILE_NUMBERING` | – | Set to `absolute` when your files carry absolute episode numbers inside season folders (Sonarr's `S02.E21` with `{absolute}` as the episode). An index that could be either season-relative or absolute is then read as absolute. Unset, it's read as season-relative; an index past the season's end is read as absolute either way. |
+| `MATCH_LABEL_SOURCE` | `false` | Set to `true` to label each **Fix Match** result with its provider and format (`Show [AniList · TV]`), to tell apart candidates listed under the same name. |
+| `MATCH_LABEL_EPISODES` | `false` | Set to `true` to label each **Fix Match** result with its episode count (`Show [24 ep]`; with `MATCH_LABEL_SOURCE` too, `Show [AniList · TV · 24 ep]`). |
 | `TITLE_LANGUAGE_ORDER` | `localized,english,romaji,native` | Priority of the title fields for show titles. `english`, `romaji` and `native` are AniList's. `localized` is the title in the library language, taken from TMDB's translations (needs TMDB credentials, only for non-English libraries); the show's synopsis is translated too when TMDB has one. Keys you omit are appended in default order, so a list without `localized` puts it last. |
 | `LOG_LEVEL` | `info` | pino log level: `trace`, `debug`, `info`, `warn`, `error` or `fatal`. |
 | `PORT` | `3000` | HTTP port inside the container. |

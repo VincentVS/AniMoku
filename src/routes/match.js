@@ -323,13 +323,31 @@ function dedupeCandidates(candidates) {
   });
 }
 
+function readEnvFlag(name) {
+  return ['true', '1', 'yes'].includes(String(process.env[name] || '').trim().toLowerCase());
+}
+
+// Fix Match titles stay clean by default: MATCH_LABEL_SOURCE=true adds the provider
+// and format, MATCH_LABEL_EPISODES=true the episode count.
+function matchLabels() {
+  return { source: readEnvFlag('MATCH_LABEL_SOURCE'), episodes: readEnvFlag('MATCH_LABEL_EPISODES') };
+}
+
 // "[AniList · TV · 24 ep]": AniList and TMDB often list a show under the same title
 // and year, and Plex's Fix Match list shows little else to tell them apart.
-function candidateLabel(provider, media, episodeCount = media.episodes) {
-  const source = provider === 'tmdb' ? 'TMDB' : 'AniList';
-  const format = media.format ? media.format.replace(/_/g, ' ') : null;
-  const episodes = episodeCount ? `${episodeCount} ep` : null;
-  return `[${[source, format, episodes].filter(Boolean).join(' · ')}]`;
+// Returns null when no detail is enabled.
+function candidateLabel(provider, media, episodeCount, labels) {
+  const details = [];
+  if (labels.source) {
+    details.push(provider === 'tmdb' ? 'TMDB' : 'AniList');
+    if (media.format) {
+      details.push(media.format.replace(/_/g, ' '));
+    }
+  }
+  if (labels.episodes && episodeCount) {
+    details.push(`${episodeCount} ep`);
+  }
+  return details.length ? `[${details.join(' · ')}]` : null;
 }
 
 // An AniList candidate is a franchise's first entry, but stands for the whole show
@@ -351,13 +369,14 @@ async function seriesEpisodeCount({ provider, media }, language) {
 function toShowCandidate({ provider, media, score }, extras, episodeCount) {
   const ratingKey = buildRatingKey('show', media.id, undefined, undefined, provider);
   const title = resolveTitle(media);
+  // Only on manual lists: an automatic match's title is what Plex stores.
+  const label = extras?.manual ? candidateLabel(provider, media, episodeCount, matchLabels()) : null;
   return {
     type: 'show',
     ratingKey,
     key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('show', ratingKey),
-    // Only on manual lists: an automatic match's title is what Plex stores.
-    title: extras?.manual ? `${title} ${candidateLabel(provider, media, episodeCount)}` : title,
+    title: label ? `${title} ${label}` : title,
     originalTitle: media.title?.romaji || null,
     summary: stripHtml(media.description || ''),
     year: media.startDate?.year || null,
@@ -470,7 +489,7 @@ async function resolveMatches(type, body, language) {
   )).map((candidate) => applyEpisodeOrder(candidate, tagOrder)));
 
   if (type === 'show') {
-    const episodeCounts = manual ? await Promise.all(eligible.map((show) => seriesEpisodeCount(show, language))) : [];
+    const episodeCounts = manual && matchLabels().episodes ? await Promise.all(eligible.map((show) => seriesEpisodeCount(show, language))) : [];
     const metadata = eligible.map((show, index) => toShowCandidate(show, {
       manual, filename: body.filename || null, parsed: parsedFilename
     }, episodeCounts[index]));
