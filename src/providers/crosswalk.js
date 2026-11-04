@@ -62,7 +62,9 @@ function fetchIndex() {
         for (const [source, id] of Object.entries(external)) {
           if (id) {
             const key = `${source}:${id}`;
-            byExternalId.set(key, [...(byExternalId.get(key) || []), { anilistId, tvdbSeason, tmdbSeason }]);
+            byExternalId.set(key, [...(byExternalId.get(key) || []), {
+              anilistId, type: entry.type || null, tvdbSeason, tmdbSeason
+            }]);
           }
         }
       }
@@ -197,7 +199,24 @@ async function findFranchiseRoot(anilistId) {
 
   const rootId = await findAnilistId('tvdb', placement.tvdbId);
   const rootPlacement = rootId ? await getTvdbPlacement(rootId) : null;
-  return rootPlacement?.season === 1 ? rootId : Number(anilistId);
+  if (rootPlacement?.season === 1) {
+    return rootId;
+  }
+  return (await findLongRunnerRoot(placement.tvdbId)) || Number(anilistId);
+}
+
+// A long runner's first seasons are one AniList entry that Fribb files under the TVDB
+// series with no season (TVDB splits it into arcs), so the series has no season-1
+// entry: that entry is the root, when it is the series' only unseasoned TV one.
+async function findLongRunnerRoot(tvdbId) {
+  try {
+    const index = await loadIndex();
+    const unseasoned = (index.byExternalId?.get(`tvdb:${Number(tvdbId)}`) || [])
+      .filter((match) => !match.tvdbSeason && match.type === 'TV');
+    return unseasoned.length === 1 ? unseasoned[0].anilistId : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 module.exports = {

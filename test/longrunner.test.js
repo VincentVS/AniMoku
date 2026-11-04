@@ -46,8 +46,8 @@ const CATALOG = {
 };
 
 const FRIBB = [
-  { anilist_id: 700, tvdb_id: 800, themoviedb_id: 900, season: { tmdb: 1 } },
-  { anilist_id: 701, tvdb_id: 800, themoviedb_id: 900, season: { tvdb: 4, tmdb: 2 } }
+  { anilist_id: 700, type: 'TV', tvdb_id: 800, themoviedb_id: 900, season: { tmdb: 1 } },
+  { anilist_id: 701, type: 'TV', tvdb_id: 800, themoviedb_id: 900, season: { tvdb: 4, tmdb: 2 } }
 ];
 
 const TMDB_SEASONS = { 1: 9, 2: 4 };
@@ -327,6 +327,20 @@ test('TMDB hits the crosswalk maps to AniList are folded into the AniList entry'
     backend.restore();
   }
 });
+
+test('a long runner\'s sequel entry is folded into the long runner, which has no TVDB season 1', async () => {
+  const backend = installBackend({ search: { Longrun: [700, 701] } });
+  try {
+    await withServer(async (baseUrl) => {
+      // AniList lists the sequel under its own title too: the Fix Match list keeps one show.
+      const manual = await postMatch(baseUrl, { type: 2, title: 'Longrun', manual: 1 });
+      assert.deepEqual(manual.body.MediaContainer.Metadata.map((show) => show.ratingKey), ['anilist-700']);
+    });
+  } finally {
+    backend.restore();
+  }
+});
+
 
 test('a non-English library gets the show title and synopsis from TMDB translations', async () => {
   const backend = installBackend();
