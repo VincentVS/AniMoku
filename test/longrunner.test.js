@@ -220,6 +220,25 @@ test('a long runner with no TVDB season is cut into TVDB seasons by TMDB\'s TVDB
   }
 });
 
+test('a sequel Fribb files past a gap follows the long runner\'s last TVDB season', () => {
+  const { closeSeasonGaps } = require('../src/utils/childData');
+  // The long runner cut into TVDB seasons 1-6, its final act filed by Fribb as season 8
+  // (TVDB lists it as 7), and specials in season 0.
+  const parts = [
+    ...[1, 2, 3, 4, 5, 6].map((seasonNumber) => ({ seasonNumber, start: (seasonNumber - 1) * 27 })),
+    { seasonNumber: 8, offset: 0 },
+    { seasonNumber: 0, offset: 0 }
+  ];
+  closeSeasonGaps(parts);
+  assert.deepEqual(parts.map((part) => part.seasonNumber), [1, 2, 3, 4, 5, 6, 7, 0]);
+
+  // Seasons that already follow on (a sequel filed as season 17 after 16) are untouched.
+  const contiguous = [{ seasonNumber: 16, start: 0 }, { seasonNumber: 17, offset: 0 }, { seasonNumber: 17, offset: 13 }];
+  closeSeasonGaps(contiguous);
+  assert.deepEqual(contiguous.map((part) => part.seasonNumber), [16, 17, 17]);
+});
+
+
 test('a long runner\'s seasons cut from one AniList entry take their Fanart.tv season poster', async () => {
   const backend = installBackend();
   const original = process.env.FANART_API_KEY;

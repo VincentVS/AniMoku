@@ -204,11 +204,29 @@ async function placeByTvdbOrder(chain, placements, rootMedia) {
     }
   });
 
+  closeSeasonGaps(parts);
   let lastSeasonNumber = Math.max(0, ...parts.map((part) => part.seasonNumber));
   unplaced.forEach(({ media, order: index }) => {
     parts.push({ media, order: index, seasonNumber: (lastSeasonNumber += 1), offset: 0 });
   });
   return parts.length ? parts : null;
+}
+
+// The seasons cut by the TVDB-order group come from TVDB itself, while a sequel's
+// Fribb season can lag behind a TVDB renumbering (a final act still filed as season 8
+// when TVDB lists it as season 7, right after the long runner's six). TVDB seasons
+// never skip a number, so Fribb-placed seasons past the cut ones are renumbered to
+// follow them with no gap, in their original order.
+function closeSeasonGaps(parts) {
+  const lastCut = Math.max(0, ...parts.filter((part) => part.start !== undefined).map((part) => part.seasonNumber));
+  if (!lastCut) {
+    return;
+  }
+  const later = [...new Set(parts.map((part) => part.seasonNumber).filter((season) => season > lastCut))].sort((a, b) => a - b);
+  const renumbered = new Map(later.map((season, index) => [season, lastCut + index + 1]));
+  for (const part of parts) {
+    part.seasonNumber = renumbered.get(part.seasonNumber) ?? part.seasonNumber;
+  }
 }
 
 // How many of its entry's episodes a part shows (an estimate for still-airing ones).
@@ -470,6 +488,7 @@ async function resolveEpisodePlacement(rootId, seasonAnilistId, provider = 'anil
 
 module.exports = {
   SERIES_FORMATS,
+  closeSeasonGaps,
   fileNumbersAreAbsolute,
   layoutOrder,
   resolveSeasonLayout,
