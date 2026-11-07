@@ -1,14 +1,18 @@
 const express = require('express');
 const { searchMedia, createMatchScore, getMediaById } = require('../providers/anilist');
 const tmdb = require('../providers/tmdb');
-const { findAnilistId, findFranchiseRoot } = require('../providers/crosswalk');
+const {
+  findAnilistId, findFranchiseRoot, getExternalIds, getTmdbPlacement
+} = require('../providers/crosswalk');
 const logger = require('../utils/logger');
 const {
   SCHEME, ABSOLUTE_PROVIDER, buildRatingKey, createGuid, parseRatingKey, isAbsoluteOrder
 } = require('../utils/guid');
 const { parseAnimeFilename, normalizeTitle } = require('../utils/filenameParser');
 const { buildDate, resolveTitle, stripHtml } = require('../utils/mapping');
-const { getAllSeasons, getAllEpisodes } = require('../utils/childData');
+const {
+  SERIES_FORMATS, fileNumbersAreAbsolute, getAllSeasons, getAllEpisodes
+} = require('../utils/childData');
 const { resolveRequestLanguage } = require('../utils/language');
 const providerConfig = require('../../config/provider.json');
 
@@ -71,7 +75,7 @@ function resolveSearchInput(type, body, parsedFilename) {
   return { term: term || normalizeTitle(parsedFilename.title || ''), year };
 }
 
-// "[anilist-15125]", "{tvdb-267440}", "[anidb=9541]": the folder-tag convention HAMA
+// "[anilist-12345]", "{tvdb-123456}", "[anidb=1234]": the folder-tag convention HAMA
 // and Plex's own agents use to pin a series. Plex only passes `guid` once an item has
 // been matched, so on the first scan these tags are the only precise hint available.
 const ID_TAG_PATTERN = /[[{](anilist|anidb|tvdb|tmdb|imdb|mal)[-=](tt\d+|\d+)[\]}]/gi;
@@ -132,7 +136,7 @@ const GUID_SOURCES = {
 };
 
 // `guid` is Plex's precise-match hint: one of our own guids on a refresh, or an
-// external id such as `tvdb://267440` (e.g. from a `{tvdb-267440}` folder tag).
+// external id such as `tvdb://123456` (e.g. from a `{tvdb-123456}` folder tag).
 // External ids are mapped to AniList through the Fribb crosswalk; a TMDB id with no
 // anime mapping falls back to the TMDB provider. Returns { provider, id } or null.
 async function resolveGuidHint(guid) {
@@ -180,10 +184,41 @@ async function fetchShow(hint, language) {
   }
 }
 
+// TMDB lists most anime too, often under the same title and year
+// as AniList. A TMDB hit the crosswalk maps to an AniList entry is that entry: it's
+// dropped when the AniList one is listed (which keeps the better score), and swapped
+// for it when it would be the automatic match - otherwise Plex could attach the anime
+// to TMDB's seasons and episodes. Expects candidates sorted by score; returns them so.
+async function preferAnilist(candidates, manual) {
+  const byAnilistId = new Map(candidates
+    .filter((candidate) => candidate.provider === 'anilist')
+    .map((candidate) => [candidate.media.id, candidate]));
+  const kept = [];
+  for (const candidate of candidates) {
+    const anilistId = candidate.provider === 'tmdb' ? await findAnilistId('tmdb', candidate.media.id) : null;
+    if (!anilistId) {
+      kept.push(candidate);
+    } else if (byAnilistId.has(anilistId)) {
+      const listed = byAnilistId.get(anilistId);
+      listed.score = Math.max(listed.score, candidate.score);
+    } else if (!manual && !kept.length) {
+      const media = await getMediaById(anilistId).catch(() => null);
+      const swapped = media ? { provider: 'anilist', media, score: candidate.score } : candidate;
+      if (media) {
+        byAnilistId.set(anilistId, swapped);
+      }
+      kept.push(swapped);
+    } else {
+      kept.push(candidate);
+    }
+  }
+  return kept.sort((a, b) => b.score - a.score);
+}
+
 // Ranked show candidates as { provider, media, score }. AniList (anime) and TMDB
 // (everything else - Western cartoons, live action) are searched in parallel and
-// merged; on equal scores AniList stays first, so an anime TMDB also lists keeps its
-// AniList seasons. TMDB is a silent no-op without credentials.
+// merged; on equal scores AniList stays first, and TMDB duplicates of AniList entries
+// are folded into them (see preferAnilist). TMDB is a silent no-op without credentials.
 async function findShows({
   term, year, parsedFilename, guid, manual, includeAdult, language
 }) {
@@ -229,10 +264,10 @@ async function findShows({
   const tmdbMedia = tmdbResult.status === 'fulfilled' ? (tmdbResult.value?.media || []).slice(0, perPage) : [];
   const score = (media) => createMatchScore(media, term, parsedFilename, { year });
 
-  const candidates = [
+  const candidates = await preferAnilist([
     ...anilistMedia.map((media) => ({ provider: 'anilist', media, score: score(media) })),
     ...tmdbMedia.map((media) => ({ provider: 'tmdb', media, score: score(media) }))
-  ].sort((a, b) => b.score - a.score);
+  ].sort((a, b) => b.score - a.score), manual);
 
   logger.info({
     term,
@@ -246,11 +281,11 @@ async function findShows({
 }
 
 // Re-keys an AniList search hit on its franchise's first season, so a folder named
-// after a sequel ("Mushoku Tensei II", "Oshi no Ko Season 2") still yields the show
+// after a sequel ("Some Show II", "Some Show Season 2") still yields the show
 // as a whole - title, year and poster of season 1, and one ratingKey/guid whichever
 // season's folder name Plex happened to search with. Only the Fribb crosswalk is
-// trusted for this: the AniList PREQUEL chain also links distinct shows (Naruto ->
-// Naruto Shippuden), which Plex libraries keep as separate series. Explicit hints
+// trusted for this: the AniList PREQUEL chain also links distinct shows (a series ->
+// its sequel series), which Plex libraries keep as separate series. Explicit hints
 // (guid, folder id tags) are never re-keyed: they say which entry was meant.
 async function toFranchiseRoot(candidate) {
   if (candidate.provider !== 'anilist' || candidate.hinted) {
@@ -288,14 +323,60 @@ function dedupeCandidates(candidates) {
   });
 }
 
-function toShowCandidate({ provider, media, score }, extras) {
+function readEnvFlag(name) {
+  return ['true', '1', 'yes'].includes(String(process.env[name] || '').trim().toLowerCase());
+}
+
+// Fix Match titles stay clean by default: MATCH_LABEL_SOURCE=true adds the provider
+// and format, MATCH_LABEL_EPISODES=true the episode count.
+function matchLabels() {
+  return { source: readEnvFlag('MATCH_LABEL_SOURCE'), episodes: readEnvFlag('MATCH_LABEL_EPISODES') };
+}
+
+// "[AniList · TV · 24 ep]": AniList and TMDB often list a show under the same title
+// and year, and Plex's Fix Match list shows little else to tell them apart.
+// Returns null when no detail is enabled.
+function candidateLabel(provider, media, episodeCount, labels) {
+  const details = [];
+  if (labels.source) {
+    details.push(provider === 'tmdb' ? 'TMDB' : 'AniList');
+    if (media.format) {
+      details.push(media.format.replace(/_/g, ' '));
+    }
+  }
+  if (labels.episodes && episodeCount) {
+    details.push(`${episodeCount} ep`);
+  }
+  return details.length ? `[${details.join(' · ')}]` : null;
+}
+
+// An AniList candidate is a franchise's first entry, but stands for the whole show
+// with every sequel season: its episode count is that of the TMDB show the crosswalk
+// maps it to, which spans the whole series (only TMDB's season count would differ
+// from TVDB's). Falls back to the entry's own count; a TMDB candidate already has it.
+async function seriesEpisodeCount({ provider, media }, language) {
+  if (provider === 'tmdb' || !SERIES_FORMATS.has(media.format)) {
+    return media.episodes;
+  }
+  const placement = await getTmdbPlacement(media.id);
+  const tmdbId = placement
+    ? (placement.season === 1 && !placement.episodeOffset ? placement.tmdbId : null)
+    : (await getExternalIds(media.id)).tmdb;
+  const show = tmdbId ? await tmdb.getTvById(tmdbId, language) : null;
+  return Math.max(show?.episodes || 0, media.episodes || 0) || null;
+}
+
+function toShowCandidate({ provider, media, score }, extras, episodeCount) {
   const ratingKey = buildRatingKey('show', media.id, undefined, undefined, provider);
+  const title = resolveTitle(media);
+  // Only on manual lists: an automatic match's title is what Plex stores.
+  const label = extras?.manual ? candidateLabel(provider, media, episodeCount, matchLabels()) : null;
   return {
     type: 'show',
     ratingKey,
     key: `/library/metadata/${ratingKey}/children`,
     guid: createGuid('show', ratingKey),
-    title: resolveTitle(media),
+    title: label ? `${title} ${label}` : title,
     originalTitle: media.title?.romaji || null,
     summary: stripHtml(media.description || ''),
     year: media.startDate?.year || null,
@@ -318,8 +399,11 @@ async function loadSeasonEpisodes(show, season, language) {
 // 2 episode 6): when season 1 has no such episode, the index is counted across the
 // regular seasons in order. Sonarr's TVDB season folders can keep absolute numbers too
 // ("S02E25" after a 24-episode season 1): a later season falls back the same way, but
-// only for an index past season 1, which a season-relative number never is. The
-// absolute order has a single regular season, so the file's season is ignored there.
+// only for an index past season 1, which a season-relative number never is. With
+// FILE_NUMBERING=absolute the seasons' episodes already carry absolute indexes (see
+// displayOffset), so the direct lookup reads S02.E21 as absolute; a season-relative
+// file in such a library (S02E02) is then found by its position in the season.
+// The absolute order has a single regular season, so the file's season is ignored there.
 // `date` is the protocol's fallback when there's no index.
 async function findEpisode(show, { parentIndex, index, date }, language) {
   const seasons = (await getAllSeasons(show.provider, show.media.id, language))?.seasons || [];
@@ -327,16 +411,11 @@ async function findEpisode(show, { parentIndex, index, date }, language) {
 
   if (index) {
     const seasonNumber = isAbsoluteOrder(show.provider) ? 1 : (parentIndex ?? 1);
-    const season = seasons.find((entry) => entry.index === seasonNumber);
-    const direct = season && (await loadSeasonEpisodes(show, season, language)).find((episode) => episode.index === index);
-    if (direct) {
-      return direct;
-    }
-
-    const firstSeasonLength = regularSeasons.length
-      ? (await loadSeasonEpisodes(show, regularSeasons[0], language)).length
-      : 0;
-    if (seasonNumber === 1 || index > firstSeasonLength) {
+    const findDirect = async () => {
+      const season = seasons.find((entry) => entry.index === seasonNumber);
+      return season && (await loadSeasonEpisodes(show, season, language)).find((episode) => episode.index === index);
+    };
+    const findAbsolute = async () => {
       let remaining = index;
       for (const entry of regularSeasons) {
         const episodes = (await loadSeasonEpisodes(show, entry, language)).sort((a, b) => a.index - b.index);
@@ -344,6 +423,24 @@ async function findEpisode(show, { parentIndex, index, date }, language) {
           return episodes[remaining - 1];
         }
         remaining -= episodes.length;
+      }
+      return null;
+    };
+
+    const firstSeasonLength = regularSeasons.length
+      ? (await loadSeasonEpisodes(show, regularSeasons[0], language)).length
+      : 0;
+    const findRelative = async () => {
+      const season = seasons.find((entry) => entry.index === seasonNumber);
+      return season && (await loadSeasonEpisodes(show, season, language)).sort((a, b) => a.index - b.index)[index - 1];
+    };
+
+    const absoluteAllowed = seasonNumber === 1 || index > firstSeasonLength;
+    const lookups = [findDirect, ...(absoluteAllowed ? [findAbsolute] : []), ...(fileNumbersAreAbsolute() ? [findRelative] : [])];
+    for (const lookup of lookups) {
+      const episode = await lookup();
+      if (episode) {
+        return episode;
       }
     }
   }
@@ -392,9 +489,10 @@ async function resolveMatches(type, body, language) {
   )).map((candidate) => applyEpisodeOrder(candidate, tagOrder)));
 
   if (type === 'show') {
-    const metadata = eligible.map((show) => toShowCandidate(show, {
+    const episodeCounts = manual && matchLabels().episodes ? await Promise.all(eligible.map((show) => seriesEpisodeCount(show, language))) : [];
+    const metadata = eligible.map((show, index) => toShowCandidate(show, {
       manual, filename: body.filename || null, parsed: parsedFilename
-    }));
+    }, episodeCounts[index]));
     if (includeChildren && metadata.length === 1) {
       const seasons = await getAllSeasons(eligible[0].provider, eligible[0].media.id, language);
       if (seasons) {

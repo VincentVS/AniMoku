@@ -21,12 +21,12 @@ function parseImdbId(value) {
   return candidates.find((id) => typeof id === 'string' && id.startsWith('tt')) || null;
 }
 
-function parseTvdbSeason(entry) {
-  const season = entry.season?.tvdb;
+function parseSeason(entry, source) {
+  const season = entry.season?.[source];
   if (!Number.isInteger(season) || season < 0) {
     return null;
   }
-  const offset = Number(entry.episode_offset?.tvdb);
+  const offset = Number(entry.episode_offset?.[source]);
   return { season, episodeOffset: Number.isInteger(offset) && offset > 0 ? offset : 0 };
 }
 
@@ -40,7 +40,7 @@ function fetchIndex() {
     })
     .then((entries) => {
       const index = new Map();
-      // Reverse lookups (`tvdb:267440` -> [AniList ids]) for Plex's match `guid` hint.
+      // Reverse lookups (`tvdb:123456` -> [AniList ids]) for Plex's match `guid` hint.
       const byExternalId = new Map();
       for (const entry of entries) {
         if (!entry.anilist_id) {
@@ -53,15 +53,18 @@ function fetchIndex() {
           imdb: parseImdbId(entry.imdb_id),
           anidb: Number(entry.anidb_id) || null
         };
-        const tvdbSeason = ids.tvdb ? parseTvdbSeason(entry) : null;
+        const tvdbSeason = ids.tvdb ? parseSeason(entry, 'tvdb') : null;
+        const tmdbSeason = ids.tmdb ? parseSeason(entry, 'tmdb') : null;
         if (ids.tvdb || ids.tmdb || ids.imdb || ids.anidb) {
-          index.set(anilistId, { ids, tvdbSeason });
+          index.set(anilistId, { ids, tvdbSeason, tmdbSeason });
         }
         const external = { ...ids, mal: Number(entry.mal_id) || null };
         for (const [source, id] of Object.entries(external)) {
           if (id) {
             const key = `${source}:${id}`;
-            byExternalId.set(key, [...(byExternalId.get(key) || []), { anilistId, tvdbSeason }]);
+            byExternalId.set(key, [...(byExternalId.get(key) || []), {
+              anilistId, type: entry.type || null, tvdbSeason, tmdbSeason
+            }]);
           }
         }
       }
@@ -143,20 +146,35 @@ async function getTvdbPlacement(anilistId) {
   }
 }
 
+// Same as getTvdbPlacement, for TMDB: { tmdbId, season, episodeOffset }, e.g. a
+// sequel's second cour is TMDB season 2 after episode 13.
+async function getTmdbPlacement(anilistId) {
+  try {
+    const index = await loadIndex();
+    const entry = index.get(Number(anilistId));
+    return entry?.tmdbSeason ? { tmdbId: entry.ids.tmdb, ...entry.tmdbSeason } : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 // The AniList entry an external id points at. TVDB and TMDB ids name a whole series
 // that Fribb splits over several AniList entries (one per cour), so the series'
 // first season (season 1, no episode offset) is preferred: that's the entry the
-// season layout is built from. Returns null when nothing is mapped.
+// season layout is built from. A TMDB id is ranked on Fribb's TMDB seasons, which long
+// runners have where TVDB ones are missing (the series is TMDB season 1 with no TVDB
+// season, its sequel TVDB season 17 and TMDB season 2). Returns null when nothing is mapped.
 async function findAnilistId(source, externalId) {
   try {
     const index = await loadIndex();
     const normalizedId = source === 'imdb' ? String(externalId) : Number(externalId);
     const matches = index.byExternalId?.get(`${source}:${normalizedId}`) || [];
-    const rank = ({ tvdbSeason }) => {
-      if (!tvdbSeason) {
+    const rank = (match) => {
+      const season = (source === 'tmdb' && match.tmdbSeason) || match.tvdbSeason;
+      if (!season) {
         return 1000;
       }
-      return (tvdbSeason.season === 0 ? 500 : tvdbSeason.season * 10) + (tvdbSeason.episodeOffset ? 1 : 0);
+      return (season.season === 0 ? 500 : season.season * 10) + (season.episodeOffset ? 1 : 0);
     };
     const best = matches.slice().sort((a, b) => rank(a) - rank(b) || a.anilistId - b.anilistId)[0];
     return best ? best.anilistId : null;
@@ -166,8 +184,8 @@ async function findAnilistId(source, externalId) {
 }
 
 // The entry a franchise's show should be keyed on: TVDB season 1 of the series this
-// entry belongs to. A folder named after a sequel ("Mushoku Tensei II") or a romaji
-// title shared by every season ("Kaguya-sama wa Kokurasetai") otherwise matches a
+// entry belongs to. A folder named after a sequel ("Some Show II") or a romaji
+// title shared by every season (the same romaji name) otherwise matches a
 // later season's entry, and the show takes that season's title, year and poster.
 // Returns the entry itself when it already is season 1, null when it isn't mapped.
 async function findFranchiseRoot(anilistId) {
@@ -181,9 +199,26 @@ async function findFranchiseRoot(anilistId) {
 
   const rootId = await findAnilistId('tvdb', placement.tvdbId);
   const rootPlacement = rootId ? await getTvdbPlacement(rootId) : null;
-  return rootPlacement?.season === 1 ? rootId : Number(anilistId);
+  if (rootPlacement?.season === 1) {
+    return rootId;
+  }
+  return (await findLongRunnerRoot(placement.tvdbId)) || Number(anilistId);
+}
+
+// A long runner's first seasons are one AniList entry that Fribb files under the TVDB
+// series with no season (TVDB splits it into arcs), so the series has no season-1
+// entry: that entry is the root, when it is the series' only unseasoned TV one.
+async function findLongRunnerRoot(tvdbId) {
+  try {
+    const index = await loadIndex();
+    const unseasoned = (index.byExternalId?.get(`tvdb:${Number(tvdbId)}`) || [])
+      .filter((match) => !match.tvdbSeason && match.type === 'TV');
+    return unseasoned.length === 1 ? unseasoned[0].anilistId : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 module.exports = {
-  getTvdbId, getExternalIds, getTvdbPlacement, findAnilistId, findFranchiseRoot
+  getTvdbId, getExternalIds, getTvdbPlacement, getTmdbPlacement, findAnilistId, findFranchiseRoot
 };

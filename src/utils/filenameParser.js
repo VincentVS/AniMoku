@@ -119,7 +119,7 @@ function normalizeTitle(rawTitle) {
 }
 
 // A 4-digit "episode" in this range is almost always a year ("Show - 2019"), not an
-// episode of a long runner like One Piece - 1071.
+// episode of a long runner like "Show - 1071".
 function isLikelyYear(value) {
   const number = Number(value);
   return String(value).length === 4 && number >= 1900 && number <= 2099;
@@ -130,7 +130,7 @@ function isLikelyYear(value) {
 const SEASON_MARKER = String.raw`(?:S(\d{1,2})|Season\s?(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+Season)`;
 
 // Tried in order; the first hit wins. `episode` is a 4-digit-capable group so long
-// runners (One Piece - 1071) work, and an optional `v2` revision suffix is accepted.
+// runners ("Show - 1071") work, and an optional `v2` revision suffix is accepted.
 // Everything before the hit is the series title - whatever follows (episode title,
 // resolution, codec, release group) is never part of it.
 const EPISODE_PATTERNS = [
@@ -161,7 +161,7 @@ const EPISODE_PATTERNS = [
   },
   {
     // "Show - 05", the fansub convention: only a dash-separated number counts, so a
-    // number that belongs to the title (Mob Psycho 100, 86) is left alone.
+    // number that belongs to the title ("Squad 100", "42") is left alone.
     pattern: 'absolute',
     regex: /\s-\s+(\d{1,4})(?:v\d+)?(?=\s|$)/,
     read: (m) => (isLikelyYear(m[1]) ? null : { episodeNumber: Number(m[1]) })

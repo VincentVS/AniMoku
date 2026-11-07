@@ -39,14 +39,22 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
+      # Pull requests from this repository publish pr-NNN; a fork's token can't write packages.
+      - id: publish
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "push=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$PR_NUMBER" ]; then printf 'pr-tag=pr-%03d\n' "$PR_NUMBER" >> "$GITHUB_OUTPUT"; fi
+
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
+        if: steps.publish.outputs.push == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # main → edge; v1.2.3 → 1.2.3, 1.2, latest
+      # main → edge; v1.2.3 → 1.2.3, 1.2, latest; PR #1 → pr-001; every build → sha-<short>
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -55,7 +63,8 @@ jobs:
             type=edge,branch=main
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=ref,event=pr
+            type=raw,value=${{ steps.publish.outputs.pr-tag }},enable=${{ github.event_name == 'pull_request' }}
+            type=sha
           labels: |
             org.opencontainers.image.title=AniMoku
             org.opencontainers.image.description=The anime metadata provider for Plex's new agents, self-hosted.
@@ -64,7 +73,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ steps.publish.outputs.push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

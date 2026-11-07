@@ -19,8 +19,9 @@ function toTmdbLanguage(value) {
 
 // The Metadata Providers protocol passes the library language as X-Plex-Language,
 // either as a header or as a query parameter; Accept-Language is only a fallback for
-// clients calling the provider directly (Bruno, curl). Only TMDB is localized:
-// AniList has no per-language titles or summaries beyond english/romaji/native.
+// clients calling the provider directly (Bruno, curl). AniList has no per-language
+// titles or summaries beyond english/romaji/native: its entries borrow TMDB's
+// translations instead (see utils/localize.js).
 function resolveRequestLanguage(req) {
   return toTmdbLanguage(
     req.query?.['X-Plex-Language']

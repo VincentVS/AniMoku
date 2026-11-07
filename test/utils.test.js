@@ -171,20 +171,24 @@ test('TITLE_LANGUAGE_ORDER lets the title priority be reordered without changing
   const originalOrder = process.env.TITLE_LANGUAGE_ORDER;
   try {
     delete process.env.TITLE_LANGUAGE_ORDER;
-    assert.deepEqual(resolveTitleLanguageOrder(), ['english', 'romaji', 'native']);
+    assert.deepEqual(resolveTitleLanguageOrder(), ['localized', 'english', 'romaji', 'native']);
     assert.equal(resolveTitle(media), 'Example Anime');
+    // A TMDB translation (utils/localize.js) wins by default, when there is one.
+    const localized = { ...media, title: { ...media.title, localized: 'Anime di esempio' } };
+    assert.equal(resolveTitle(localized), 'Anime di esempio');
 
     process.env.TITLE_LANGUAGE_ORDER = 'romaji,english,native';
-    assert.deepEqual(resolveTitleLanguageOrder(), ['romaji', 'english', 'native']);
+    assert.deepEqual(resolveTitleLanguageOrder(), ['romaji', 'english', 'native', 'localized']);
     assert.equal(resolveTitle(media), 'Example Anime Romaji');
+    assert.equal(resolveTitle(localized), 'Example Anime Romaji');
 
     process.env.TITLE_LANGUAGE_ORDER = 'native , romaji';
-    assert.deepEqual(resolveTitleLanguageOrder(), ['native', 'romaji', 'english']);
+    assert.deepEqual(resolveTitleLanguageOrder(), ['native', 'romaji', 'localized', 'english']);
     assert.equal(resolveTitle(media), 'サンプル');
 
     // Unknown language keys are ignored rather than breaking the fallback chain.
     process.env.TITLE_LANGUAGE_ORDER = 'italian,romaji';
-    assert.deepEqual(resolveTitleLanguageOrder(), ['romaji', 'english', 'native']);
+    assert.deepEqual(resolveTitleLanguageOrder(), ['romaji', 'localized', 'english', 'native']);
     assert.equal(resolveTitle({ id: 1, title: {} }), 'AniList 1');
   } finally {
     if (originalOrder === undefined) {

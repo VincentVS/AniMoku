@@ -5,9 +5,11 @@ const { mapEpisodeMetadata, mapSeasonMetadata, mapShowMetadata } = require('../u
 const { buildRatingKey, parseRatingKey } = require('../utils/guid');
 const { getExternalIds } = require('../providers/crosswalk');
 const {
-  getAllSeasons, getAllEpisodes, resolveEpisodePlacement, resolveSeasonLayout, findLayoutSeason, layoutOrder
+  getAllSeasons, getAllEpisodes, resolveEpisodePlacement, resolveSeasonLayout, findLayoutSeason, layoutOrder,
+  resolveSeasonPoster
 } = require('../utils/childData');
 const { resolveRequestLanguage } = require('../utils/language');
+const { localizeMedia } = require('../utils/localize');
 const providerConfig = require('../../config/provider.json');
 
 const router = express.Router();
@@ -48,7 +50,9 @@ router.get('/:id', async (req, res, next) => {
 
     let metadata;
     if (parsed.type === 'show') {
-      const media = provider === 'tmdb' ? await tmdb.getTvById(parsed.rootId, language) : await getMediaById(parsed.rootId);
+      const media = provider === 'tmdb'
+        ? await tmdb.getTvById(parsed.rootId, language)
+        : await localizeMedia(await getMediaById(parsed.rootId), language);
       if (!media) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
@@ -59,18 +63,28 @@ router.get('/:id', async (req, res, next) => {
         metadata.Children = { size: seasonsResult.seasons.length, Metadata: seasonsResult.seasons };
       }
     } else if (parsed.type === 'season') {
+      let poster = null;
       if (provider !== 'tmdb') {
         const layout = await resolveSeasonLayout(parsed.rootId, layoutOrder(provider));
-        if (!findLayoutSeason(layout, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId)) {
+        const layoutSeason = findLayoutSeason(layout, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId);
+        if (!layoutSeason) {
           return res.status(404).json({ error: 'Metadata not found' });
         }
+        poster = await resolveSeasonPoster(layout, layoutSeason);
       }
       const media = await resolveSeasonMedia(provider, parsed, language);
       if (!media) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
       const rootMedia = await resolveRootMedia(provider, media, parsed, language);
-      metadata = mapSeasonMetadata(media, parsed.seasonNumber, rootMedia, provider);
+      if (provider === 'tmdb') {
+        metadata = mapSeasonMetadata(media, parsed.seasonNumber, rootMedia, provider);
+      } else {
+        // Seasons cut from the root entry (a long runner's TVDB seasons) share its synopsis.
+        const localizedRoot = await localizeMedia(rootMedia, language);
+        const seasonMedia = media.id === rootMedia.id ? localizedRoot : media;
+        metadata = mapSeasonMetadata(seasonMedia, parsed.seasonNumber, localizedRoot, provider, { poster });
+      }
       if (includeChildren) {
         const episodesResult = await getAllEpisodes(provider, parsed.rootId, parsed.seasonNumber, parsed.seasonAnilistId, language);
         if (episodesResult) {
@@ -81,7 +95,7 @@ router.get('/:id', async (req, res, next) => {
       // TMDB episode keys carry their season; AniList ones are placed via the layout.
       const placement = provider === 'tmdb'
         ? (parsed.seasonNumber ? { seasonNumber: parsed.seasonNumber, offset: 0 } : null)
-        : await resolveEpisodePlacement(parsed.rootId, parsed.seasonAnilistId, provider);
+        : await resolveEpisodePlacement(parsed.rootId, parsed.seasonAnilistId, provider, parsed.episodeNumber);
       if (!placement) {
         return res.status(404).json({ error: 'Metadata not found' });
       }

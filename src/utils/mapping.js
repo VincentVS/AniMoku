@@ -63,11 +63,13 @@ function createImageArray(imageSet, alt, gallery = {}) {
   return entries;
 }
 
-const TITLE_LANGUAGE_KEYS = ['english', 'romaji', 'native'];
+const TITLE_LANGUAGE_KEYS = ['localized', 'english', 'romaji', 'native'];
 const DEFAULT_TITLE_LANGUAGE_ORDER = TITLE_LANGUAGE_KEYS;
 
-// AniList only exposes english/romaji/native title fields (no Italian), so this only
-// lets TITLE_LANGUAGE_ORDER reorder priority among those three, e.g. "romaji,english,native".
+// AniList exposes english/romaji/native titles; `localized` is the library language's
+// title borrowed from TMDB (utils/localize.js), only set for non-English libraries.
+// TITLE_LANGUAGE_ORDER reorders them, e.g. "romaji,english,native"; keys it leaves out
+// keep their default order after the listed ones.
 function resolveTitleLanguageOrder() {
   const raw = process.env.TITLE_LANGUAGE_ORDER;
   if (!raw) {
@@ -192,11 +194,14 @@ function seasonTitle(seasonNumber) {
   return Number(seasonNumber) === 0 ? 'Specials' : `Season ${seasonNumber}`;
 }
 
-function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider = 'anilist') {
+// `poster` replaces the entry's AniList cover (kept as an alternative): seasons cut
+// from one AniList entry would otherwise all show the same one.
+function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider = 'anilist', { poster } = {}) {
   const seasonAnilistId = media.id !== rootMedia.id ? media.id : undefined;
   const ratingKey = buildRatingKey('season', rootMedia.id, seasonNumber, seasonAnilistId, provider);
   const parentRatingKey = buildRatingKey('show', rootMedia.id, undefined, undefined, provider);
-  const imageSet = createImageSet(media);
+  const entryImages = createImageSet(media);
+  const imageSet = poster ? { ...entryImages, coverPoster: poster } : entryImages;
   const parentTitle = resolveTitle(rootMedia);
   const studioNames = resolveStudioNames(media);
   const rating = createRatingArray(media);
@@ -226,7 +231,7 @@ function mapSeasonMetadata(media, seasonNumber = 1, rootMedia = media, provider 
     parentTitle,
     index: seasonNumber,
     images: imageSet,
-    Image: createImageArray(imageSet, seasonTitle(seasonNumber))
+    Image: createImageArray(imageSet, seasonTitle(seasonNumber), { posters: [entryImages.coverPoster] })
   };
 }
 

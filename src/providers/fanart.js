@@ -95,4 +95,22 @@ async function getFanartImages(tvdbId, seasonNumber) {
   return images;
 }
 
-module.exports = { getFanartImages };
+// The best poster made for exactly this TVDB season ("all" season art excluded), or
+// null: what tells apart seasons that share one AniList entry, and with it one cover.
+async function getSeasonPoster(tvdbId, seasonNumber) {
+  const apiKey = process.env.FANART_API_KEY;
+  if (!apiKey || !tvdbId || !seasonNumber) {
+    return null;
+  }
+
+  try {
+    const data = await fetchFanartData(tvdbId, apiKey);
+    const poster = (data.seasonposter || []).find((item) => item.season === String(seasonNumber) && item.url);
+    return poster?.url || null;
+  } catch (error) {
+    logger.warn({ tvdbId, err: error }, 'Fanart.tv request failed, keeping the AniList season cover');
+    return null;
+  }
+}
+
+module.exports = { getFanartImages, getSeasonPoster };
