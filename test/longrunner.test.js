@@ -42,18 +42,37 @@ const CATALOG = {
     episodes: 4,
     startDate: { year: 2022, month: 10, day: 11 },
     relations: { edges: [{ relationType: 'PREQUEL', node: { id: 700, format: 'TV' } }] }
-  })
+  }),
+  // Long runners with no "TVDB Order" group on TMDB (see TMDB_SHOWS): 710 runs over
+  // TMDB seasons 1-2, 720 fits in TMDB season 1, which holds its sequel too.
+  710: media(710, { relations: { edges: [{ relationType: 'SEQUEL', node: { id: 711, format: 'TV' } }] } }),
+  711: media(711, { episodes: 4, relations: { edges: [{ relationType: 'PREQUEL', node: { id: 710, format: 'TV' } }] } }),
+  720: media(720, { relations: { edges: [{ relationType: 'SEQUEL', node: { id: 721, format: 'TV' } }] } }),
+  721: media(721, { episodes: 4, relations: { edges: [{ relationType: 'PREQUEL', node: { id: 720, format: 'TV' } }] } })
 };
 
 const FRIBB = [
   { anilist_id: 700, type: 'TV', tvdb_id: 800, themoviedb_id: 900, season: { tmdb: 1 } },
-  { anilist_id: 701, type: 'TV', tvdb_id: 800, themoviedb_id: 900, season: { tvdb: 4, tmdb: 2 } }
+  { anilist_id: 701, type: 'TV', tvdb_id: 800, themoviedb_id: 900, season: { tvdb: 4, tmdb: 2 } },
+  // No TVDB or TMDB season for any of these, only the sequel's absolute offset.
+  { anilist_id: 710, type: 'TV', tvdb_id: 810, themoviedb_id: { tv: 910 } },
+  { anilist_id: 711, type: 'TV', tvdb_id: 810, themoviedb_id: { tv: 910 }, episode_offset: { tvdb: 9 } },
+  { anilist_id: 720, type: 'TV', tvdb_id: 820, themoviedb_id: { tv: 920 } },
+  { anilist_id: 721, type: 'TV', tvdb_id: 820, themoviedb_id: { tv: 920 }, episode_offset: { tvdb: 9 } }
 ];
 
-const TMDB_SEASONS = { 1: 9, 2: 4 };
+// Episodes per TMDB season of each show, and whether it has a "TVDB Order" group.
+const TMDB_SHOWS = {
+  900: { tvdb: 800, seasons: { 1: 9, 2: 4 }, tvdbGroup: true },
+  // TMDB's own seasons are TVDB's: 3 + 6 for entry 710, then its sequel.
+  910: { tvdb: 810, seasons: { 1: 3, 2: 6, 3: 4 }, tvdbGroup: false },
+  // The whole franchise as one TMDB season: no hint of TVDB's split.
+  920: { tvdb: 820, seasons: { 1: 13 }, tvdbGroup: false }
+};
+const TMDB_SEASONS = TMDB_SHOWS[900].seasons;
 
-function tmdbEpisodes(seasonNumber) {
-  return Array.from({ length: TMDB_SEASONS[seasonNumber] }, (_, index) => ({
+function tmdbEpisodes(seasonNumber, seasons = TMDB_SEASONS) {
+  return Array.from({ length: seasons[seasonNumber] }, (_, index) => ({
     episode_number: index + 1,
     name: `TMDB ${seasonNumber}x${index + 1}`,
     overview: '',
@@ -65,15 +84,16 @@ function groupEpisodes(seasonNumber, from, to) {
   return Array.from({ length: to - from + 1 }, (_, index) => ({ season_number: seasonNumber, episode_number: from + index }));
 }
 
-function tmdbShow(name = 'Longrun') {
+function tmdbShow(name = 'Longrun', id = 900) {
+  const { tvdb, seasons } = TMDB_SHOWS[id];
   return {
-    id: 900,
+    id,
     name,
     overview: 'Summary TMDB',
     first_air_date: '2004-10-05',
     number_of_episodes: 13,
-    seasons: [0, 1, 2].map((n) => ({ season_number: n, episode_count: TMDB_SEASONS[n] || 0 })),
-    external_ids: { tvdb_id: 800 }
+    seasons: [0, ...Object.keys(seasons).map(Number)].map((n) => ({ season_number: n, episode_count: seasons[n] || 0 })),
+    external_ids: { tvdb_id: tvdb }
   };
 }
 
@@ -83,18 +103,23 @@ function tmdbResponse(url) {
     const query = url.searchParams.get('query');
     return { page: 1, total_pages: 1, results: query.startsWith('Longrun') ? [tmdbShow(query)] : [] };
   }
-  if (path === '/tv/900') {
-    const data = tmdbShow();
+  const [, showId, rest = ''] = /^\/tv\/(\d+)(\/.*)?$/.exec(path) || [];
+  const show = TMDB_SHOWS[showId];
+  if (show && !rest) {
+    const data = tmdbShow('Longrun', Number(showId));
     for (const part of (url.searchParams.get('append_to_response') || '').split(',')) {
       const [, seasonNumber] = /^season\/(\d+)$/.exec(part) || [];
-      if (TMDB_SEASONS[seasonNumber]) {
-        data[part] = { episodes: tmdbEpisodes(seasonNumber) };
+      if (show.seasons[seasonNumber]) {
+        data[part] = { episodes: tmdbEpisodes(seasonNumber, show.seasons) };
       }
     }
     return data;
   }
-  if (path === '/tv/900/content_ratings') {
+  if (show && rest === '/content_ratings') {
     return { results: [] };
+  }
+  if (show && rest === '/episode_groups' && !show.tvdbGroup) {
+    return { results: [{ id: 'arcs', name: 'Arcs', episode_count: 13 }] };
   }
   if (path === '/tv/900/translations') {
     return {
@@ -214,6 +239,45 @@ test('a long runner with no TVDB season is cut into TVDB seasons by TMDB\'s TVDB
       const finalArc = season4.body.MediaContainer.Metadata[0].Children.Metadata;
       assert.deepEqual(finalArc.map((episode) => episode.index), [1, 2, 3, 4]);
       assert.equal(finalArc[0].title, 'TMDB 2x1');
+    });
+  } finally {
+    backend.restore();
+  }
+});
+
+test('a long runner with no TVDB-order group is cut by the TMDB show seasons', async () => {
+  const backend = installBackend();
+  try {
+    await withServer(async (baseUrl) => {
+      const show = await getMetadata(baseUrl, 'anilist-710');
+      const seasons = show.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(
+        seasons.map((season) => [season.index, season.ratingKey]),
+        [[1, 'anilist-710-s1'], [2, 'anilist-710-s2'], [3, 'anilist-710-s3-a711']]
+      );
+
+      // Season 2 holds AniList episodes 4-9, TMDB season 2.
+      const season2 = await getMetadata(baseUrl, 'anilist-710-s2');
+      const episodes = season2.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(episodes.map((episode) => episode.index), [1, 2, 3, 4, 5, 6]);
+      assert.equal(episodes[0].title, 'TMDB 2x1');
+      assert.equal(episodes[0].ratingKey.startsWith('anilist-710-e04'), true);
+
+      const season3 = await getMetadata(baseUrl, 'anilist-710-s3-a711');
+      assert.equal(season3.body.MediaContainer.Metadata[0].Children.Metadata[0].title, 'TMDB 3x1');
+    });
+  } finally {
+    backend.restore();
+  }
+});
+
+test('without a TVDB-order group, a root that fits in TMDB season 1 keeps one season per entry', async () => {
+  const backend = installBackend();
+  try {
+    await withServer(async (baseUrl) => {
+      const show = await getMetadata(baseUrl, 'anilist-720');
+      const seasons = show.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(seasons.map((season) => season.ratingKey), ['anilist-720-s1', 'anilist-720-s2-a721']);
     });
   } finally {
     backend.restore();

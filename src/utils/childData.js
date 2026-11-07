@@ -145,10 +145,24 @@ async function countEpisodes(media) {
 // where a TVDB season starts. Such a part holds episodes start+1..start+length of its
 // entry (length null: up to the last one). Entries Fribb does place in a TVDB season
 // (a sequel series filed as season 17) keep that placement; entries with no
-// known position are appended as new seasons. Returns null without a usable group.
+// known position are appended as new seasons.
+// Without such a group, TMDB's own seasons are used instead, but only when the root
+// entry runs past TMDB season 1: then it is a long runner that chain position would
+// squeeze into one season. A root that fits in season 1 keeps chain position, which
+// also covers TMDB listing a whole franchise as one season. Returns null otherwise.
 async function placeByTvdbOrder(chain, placements, rootMedia) {
   const rootIds = await getExternalIds(rootMedia.id);
-  const order = rootIds.tmdb ? await tmdb.getTvdbOrder(rootIds.tmdb) : null;
+  if (!rootIds.tmdb) {
+    return null;
+  }
+  let order = await tmdb.getTvdbOrder(rootIds.tmdb);
+  if (!order) {
+    const [seasonOrder, rootCount] = await Promise.all([tmdb.getSeasonOrder(rootIds.tmdb), countEpisodes(rootMedia)]);
+    const firstSeason = seasonOrder?.seasons[0];
+    if (firstSeason && rootCount > firstSeason.last - firstSeason.first + 1) {
+      order = seasonOrder;
+    }
+  }
   if (!order) {
     return null;
   }

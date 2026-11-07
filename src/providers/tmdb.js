@@ -387,6 +387,26 @@ async function getTvdbOrder(id) {
   }
 }
 
+// The show's own TMDB seasons, in getTvdbOrder's shape, for a long runner with no
+// "TVDB Order" group: TMDB seeds anime seasons from TVDB, so they are often TVDB's
+// split already (a 175-episode first series as seasons 1-4). Whether to trust it is
+// the caller's call (see placeByTvdbOrder). null with fewer than two seasons.
+async function getSeasonOrder(id) {
+  const episodes = await getRegularEpisodes(id, 'en-US');
+  const seasons = [];
+  const seasonStarts = new Map();
+  episodes.forEach((episode, index) => {
+    const last = seasons[seasons.length - 1];
+    if (last?.seasonNumber === episode.seasonNumber) {
+      last.last = index;
+    } else {
+      seasons.push({ seasonNumber: episode.seasonNumber, first: index, last: index });
+      seasonStarts.set(episode.seasonNumber, index);
+    }
+  });
+  return seasons.length > 1 ? { seasons, seasonStarts } : null;
+}
+
 const SQUARE_ASPECT_TOLERANCE = 0.1;
 
 function pickSquareBackground(backdrops = []) {
@@ -454,6 +474,7 @@ module.exports = {
   getEpisodesPage,
   getRegularEpisodes,
   getTvdbOrder,
+  getSeasonOrder,
   getShowImages,
   toMediaShape
 };
