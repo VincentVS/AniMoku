@@ -141,14 +141,15 @@ async function countEpisodes(media) {
 // arc seasons (e.g. 366 episodes as TVDB seasons 1-16), and Fribb has no TVDB season
 // for them. TMDB's "TVDB Order" episode group says which TMDB episodes make up each
 // TVDB season, so every entry is positioned in TMDB's airing order - from Fribb's TMDB
-// season/offset, else right after the previous entry, the root at the start - and cut
+// season/offset, else right after the previous entry, the chain's first at the start
+// (also when the show is keyed on a sequel series) - and cut
 // where a TVDB season starts. Such a part holds episodes start+1..start+length of its
 // entry (length null: up to the last one). Entries Fribb does place in a TVDB season
 // (a sequel series filed as season 17) keep that placement; entries with no
 // known position are appended as new seasons.
-// Without such a group, TMDB's own seasons are used instead, but only when the root
+// Without such a group, TMDB's own seasons are used instead, but only when the first
 // entry runs past TMDB season 1: then it is a long runner that chain position would
-// squeeze into one season. A root that fits in season 1 keeps chain position, which
+// squeeze into one season. A first entry that fits in season 1 keeps chain position, which
 // also covers TMDB listing a whole franchise as one season. Returns null otherwise.
 async function placeByTvdbOrder(chain, placements, rootMedia) {
   const rootIds = await getExternalIds(rootMedia.id);
@@ -157,9 +158,9 @@ async function placeByTvdbOrder(chain, placements, rootMedia) {
   }
   let order = await tmdb.getTvdbOrder(rootIds.tmdb);
   if (!order) {
-    const [seasonOrder, rootCount] = await Promise.all([tmdb.getSeasonOrder(rootIds.tmdb), countEpisodes(rootMedia)]);
+    const [seasonOrder, firstCount] = await Promise.all([tmdb.getSeasonOrder(rootIds.tmdb), countEpisodes(chain[0])]);
     const firstSeason = seasonOrder?.seasons[0];
-    if (firstSeason && rootCount > firstSeason.last - firstSeason.first + 1) {
+    if (firstSeason && firstCount > firstSeason.last - firstSeason.first + 1) {
       order = seasonOrder;
     }
   }
@@ -177,7 +178,7 @@ async function placeByTvdbOrder(chain, placements, rootMedia) {
   let nextStart = 0;
   chain.forEach((media, index) => {
     const tmdbPlacement = tmdbPlacements[index];
-    let start = media === rootMedia ? 0 : nextStart;
+    let start = index === 0 ? 0 : nextStart;
     if (tmdbPlacement?.tmdbId === rootIds.tmdb && order.seasonStarts.has(tmdbPlacement.season)) {
       start = order.seasonStarts.get(tmdbPlacement.season) + tmdbPlacement.episodeOffset;
     }

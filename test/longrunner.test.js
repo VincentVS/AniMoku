@@ -47,6 +47,7 @@ const CATALOG = {
   // TMDB seasons 1-2, 720 fits in TMDB season 1, which holds its sequel too.
   710: media(710, { relations: { edges: [{ relationType: 'SEQUEL', node: { id: 711, format: 'TV' } }] } }),
   711: media(711, { episodes: 4, relations: { edges: [{ relationType: 'PREQUEL', node: { id: 710, format: 'TV' } }] } }),
+  712: media(712, { format: 'OVA', episodes: 1 }),
   720: media(720, { relations: { edges: [{ relationType: 'SEQUEL', node: { id: 721, format: 'TV' } }] } }),
   721: media(721, { episodes: 4, relations: { edges: [{ relationType: 'PREQUEL', node: { id: 720, format: 'TV' } }] } })
 };
@@ -57,6 +58,7 @@ const FRIBB = [
   // No TVDB or TMDB season for any of these, only the sequel's absolute offset.
   { anilist_id: 710, type: 'TV', tvdb_id: 810, themoviedb_id: { tv: 910 } },
   { anilist_id: 711, type: 'TV', tvdb_id: 810, themoviedb_id: { tv: 910 }, episode_offset: { tvdb: 9 } },
+  { anilist_id: 712, type: 'OVA', tvdb_id: 810, themoviedb_id: { tv: 910 }, season: { tvdb: 0, tmdb: 0 } },
   { anilist_id: 720, type: 'TV', tvdb_id: 820, themoviedb_id: { tv: 920 } },
   { anilist_id: 721, type: 'TV', tvdb_id: 820, themoviedb_id: { tv: 920 }, episode_offset: { tvdb: 9 } }
 ];
@@ -266,6 +268,39 @@ test('a long runner with no TVDB-order group is cut by the TMDB show seasons', a
       const season3 = await getMetadata(baseUrl, 'anilist-710-s3-a711');
       assert.equal(season3.body.MediaContainer.Metadata[0].Children.Metadata[0].title, 'TMDB 3x1');
     });
+  } finally {
+    backend.restore();
+  }
+});
+
+test('a long runner keyed on its sequel series gets the seasons of the whole series', async () => {
+  const backend = installBackend();
+  try {
+    await withServer(async (baseUrl) => {
+      const show = await getMetadata(baseUrl, 'anilist-711');
+      const seasons = show.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(
+        seasons.map((season) => [season.index, season.ratingKey]),
+        [[1, 'anilist-711-s1-a710'], [2, 'anilist-711-s2-a710'], [3, 'anilist-711-s3']]
+      );
+      const season3 = await getMetadata(baseUrl, 'anilist-711-s3');
+      assert.equal(season3.body.MediaContainer.Metadata[0].Children.Metadata[0].title, 'TMDB 3x1');
+    });
+  } finally {
+    backend.restore();
+  }
+});
+
+test('a TVDB id names the first series of a long runner, not its OVA, and its sequel is re-keyed on it', async () => {
+  const backend = installBackend();
+  try {
+    await withServer(async (baseUrl) => {
+      const hinted = await postMatch(baseUrl, { type: 2, title: 'Longrun', guid: 'tvdb://810' });
+      assert.equal(hinted.body.MediaContainer.Metadata[0].ratingKey, 'anilist-710');
+    });
+    const { findFranchiseRoot } = require('../src/providers/crosswalk');
+    assert.equal(await findFranchiseRoot(711), 710);
+    assert.equal(await findFranchiseRoot(710), null);
   } finally {
     backend.restore();
   }

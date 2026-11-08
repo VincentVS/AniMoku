@@ -21,6 +21,13 @@ function parseImdbId(value) {
   return candidates.find((id) => typeof id === 'string' && id.startsWith('tt')) || null;
 }
 
+// Fribb gives a long runner's later entries an absolute episode offset with no season
+// (the second series starts after TVDB episode 175): 0 for its first entry.
+function parseOffset(entry, source) {
+  const offset = Number(entry.episode_offset?.[source]);
+  return Number.isInteger(offset) && offset > 0 ? offset : 0;
+}
+
 function parseSeason(entry, source) {
   const season = entry.season?.[source];
   if (!Number.isInteger(season) || season < 0) {
@@ -55,15 +62,19 @@ function fetchIndex() {
         };
         const tvdbSeason = ids.tvdb ? parseSeason(entry, 'tvdb') : null;
         const tmdbSeason = ids.tmdb ? parseSeason(entry, 'tmdb') : null;
+        const type = entry.type || null;
+        const tvdbOffset = parseOffset(entry, 'tvdb');
         if (ids.tvdb || ids.tmdb || ids.imdb || ids.anidb) {
-          index.set(anilistId, { ids, tvdbSeason, tmdbSeason });
+          index.set(anilistId, {
+            ids, type, tvdbSeason, tmdbSeason, tvdbOffset
+          });
         }
         const external = { ...ids, mal: Number(entry.mal_id) || null };
         for (const [source, id] of Object.entries(external)) {
           if (id) {
             const key = `${source}:${id}`;
             byExternalId.set(key, [...(byExternalId.get(key) || []), {
-              anilistId, type: entry.type || null, tvdbSeason, tmdbSeason
+              anilistId, type, tvdbSeason, tmdbSeason, tvdbOffset, tmdbOffset: parseOffset(entry, 'tmdb')
             }]);
           }
         }
@@ -163,7 +174,9 @@ async function getTmdbPlacement(anilistId) {
 // first season (season 1, no episode offset) is preferred: that's the entry the
 // season layout is built from. A TMDB id is ranked on Fribb's TMDB seasons, which long
 // runners have where TVDB ones are missing (the series is TMDB season 1 with no TVDB
-// season, its sequel TVDB season 17 and TMDB season 2). Returns null when nothing is mapped.
+// season, its sequel TVDB season 17 and TMDB season 2). With no season at all, a long
+// runner's first TV entry (no episode offset) ranks right after a season 1: the
+// series' specials or OVA (season 0) must not win over it. Returns null when nothing is mapped.
 async function findAnilistId(source, externalId) {
   try {
     const index = await loadIndex();
@@ -172,7 +185,8 @@ async function findAnilistId(source, externalId) {
     const rank = (match) => {
       const season = (source === 'tmdb' && match.tmdbSeason) || match.tvdbSeason;
       if (!season) {
-        return 1000;
+        const offset = source === 'tmdb' ? match.tmdbOffset : match.tvdbOffset;
+        return match.type === 'TV' && !offset ? 12 : 1000;
       }
       return (season.season === 0 ? 500 : season.season * 10) + (season.episodeOffset ? 1 : 0);
     };
@@ -191,7 +205,7 @@ async function findAnilistId(source, externalId) {
 async function findFranchiseRoot(anilistId) {
   const placement = await getTvdbPlacement(anilistId);
   if (!placement?.tvdbId) {
-    return null;
+    return findLongRunnerSequelRoot(anilistId);
   }
   if (placement.season === 1 && !placement.episodeOffset) {
     return Number(anilistId);
@@ -207,13 +221,29 @@ async function findFranchiseRoot(anilistId) {
 
 // A long runner's first seasons are one AniList entry that Fribb files under the TVDB
 // series with no season (TVDB splits it into arcs), so the series has no season-1
-// entry: that entry is the root, when it is the series' only unseasoned TV one.
+// entry: that entry is the root, when it is the series' only unseasoned TV one with no
+// episode offset (its sequel series can be unseasoned too, after episode 175).
 async function findLongRunnerRoot(tvdbId) {
   try {
     const index = await loadIndex();
     const unseasoned = (index.byExternalId?.get(`tvdb:${Number(tvdbId)}`) || [])
-      .filter((match) => !match.tvdbSeason && match.type === 'TV');
+      .filter((match) => !match.tvdbSeason && match.type === 'TV' && !match.tvdbOffset);
     return unseasoned.length === 1 ? unseasoned[0].anilistId : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+// A long runner's sequel series with no TVDB season, only an offset: its show is the
+// long runner's. Returns null for anything else (not mapped, or no offset).
+async function findLongRunnerSequelRoot(anilistId) {
+  try {
+    const index = await loadIndex();
+    const entry = index.get(Number(anilistId));
+    if (!entry?.ids.tvdb || entry.tvdbSeason || entry.type !== 'TV' || !entry.tvdbOffset) {
+      return null;
+    }
+    return findLongRunnerRoot(entry.ids.tvdb);
   } catch (error) {
     return null;
   }
