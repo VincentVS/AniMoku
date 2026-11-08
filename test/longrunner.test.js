@@ -81,6 +81,8 @@ const TMDB_SHOWS = {
 };
 
 // Episodes per TheTVDB season (TVDB_API_KEY set): where only TVDB splits the entry.
+// 830's absolute numbers skip 4 after season 1 (TVDB counts a special there);
+// 840's counts before season 1, as absolute 1, so season 1 starts at absolute 2.
 const TVDB_SERIES = {
   830: { 0: 1, 1: 3, 2: 3, 3: 3 },
   840: { 1: 6, 2: 3 }
@@ -90,14 +92,32 @@ function tvdbResponse(url) {
   if (url.pathname === '/v4/login') {
     return { status: 'success', data: { token: 'tvdb-token' } };
   }
-  const [, seriesId] = /^\/v4\/series\/(\d+)\/episodes\/default$/.exec(url.pathname) || [];
+  const [, seriesId, language = ''] = /^\/v4\/series\/(\d+)\/episodes\/default(?:\/([a-z]{3}))?$/.exec(url.pathname) || [];
   const seasons = TVDB_SERIES[seriesId];
   if (!seasons) {
     return null;
   }
+  let absolute = Number(seriesId) === 840 ? 1 : 0;
   const episodes = Object.entries(seasons).flatMap(([seasonNumber, count]) => Array.from(
     { length: count },
-    (_, index) => ({ seasonNumber: Number(seasonNumber), number: index + 1 })
+    (_, index) => {
+      const regular = Number(seasonNumber) > 0;
+      if (regular) {
+        absolute += Number(seriesId) === 830 && Number(seasonNumber) === 2 && index === 0 ? 2 : 1;
+      }
+      return {
+        seasonNumber: Number(seasonNumber),
+        number: index + 1,
+        // The special has absolute 40, past every special number: Sonarr names it S00.E40.
+        absoluteNumber: regular ? absolute : (Number(seriesId) === 830 ? 40 : 0),
+        // Italian only for the special, so other names fall back to English.
+        name: regular || language === 'eng' ? `TVDB ${seasonNumber}x${index + 1}` : (language === 'ita' ? `Speciale ${index + 1}` : null),
+        overview: null,
+        aired: '2005-01-01',
+        image: '/banners/episodes/1.jpg',
+        runtime: 24
+      };
+    }
   ));
   return { status: 'success', data: { episodes }, links: { next: null } };
 }
@@ -358,7 +378,8 @@ test('an entry TMDB keeps whole is cut by the seasons TheTVDB lists', async () =
     await withTvdb(() => withServer(async (baseUrl) => {
       const show = await getMetadata(baseUrl, 'anilist-730');
       const seasons = show.body.MediaContainer.Metadata[0].Children.Metadata;
-      assert.deepEqual(seasons.map((season) => season.ratingKey), ['anilist-730-s1', 'anilist-730-s2', 'anilist-730-s3']);
+      // Season 0 comes from TVDB's specials: AniList's chain has none.
+      assert.deepEqual(seasons.map((season) => season.ratingKey), ['anilist-730-s0', 'anilist-730-s1', 'anilist-730-s2', 'anilist-730-s3']);
 
       const season3 = await getMetadata(baseUrl, 'anilist-730-s3');
       const episodes = season3.body.MediaContainer.Metadata[0].Children.Metadata;
@@ -368,6 +389,65 @@ test('an entry TMDB keeps whole is cut by the seasons TheTVDB lists', async () =
       assert.equal(episodes[0].title, 'TMDB 1x7');
     }));
   } finally {
+    backend.restore();
+  }
+});
+
+test('TVDB specials fill season 0, in the library language, with keys of their own', async () => {
+  const backend = installBackend();
+  try {
+    await withTvdb(() => withServer(async (baseUrl) => {
+      const specials = await getMetadata(baseUrl, 'anilist-730-s0', '&X-Plex-Language=it-IT');
+      const episodes = specials.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(
+        episodes.map((episode) => [episode.ratingKey, episode.parentIndex, episode.index, episode.title]),
+        [['anilist-730-s0-e01', 0, 1, 'Speciale 1']]
+      );
+      assert.equal(episodes[0].thumb ?? episodes[0].Image?.find((image) => image.type === 'snapshot')?.url.split('#')[0], 'https://artworks.thetvdb.com/banners/episodes/1.jpg');
+
+      const single = await getMetadata(baseUrl, 'anilist-730-s0-e01', '&X-Plex-Language=en');
+      assert.equal(single.status, 200);
+      assert.equal(single.body.MediaContainer.Metadata[0].title, 'TVDB 0x1');
+      // The root's regular episode 1 keeps its own key and season.
+      const regular = await getMetadata(baseUrl, 'anilist-730-e01');
+      assert.equal(regular.body.MediaContainer.Metadata[0].parentIndex, 1);
+    }));
+  } finally {
+    backend.restore();
+  }
+});
+
+test('FILE_NUMBERING=absolute numbers episodes with the absolute numbers of TVDB, gaps included', async () => {
+  const backend = installBackend();
+  const original = process.env.FILE_NUMBERING;
+  process.env.FILE_NUMBERING = 'absolute';
+  try {
+    await withTvdb(() => withServer(async (baseUrl) => {
+      // TVDB counts the special as absolute 4: season 2 runs 5-7, not 4-6.
+      const season2 = await getMetadata(baseUrl, 'anilist-730-s2');
+      assert.deepEqual(season2.body.MediaContainer.Metadata[0].Children.Metadata.map((episode) => episode.index), [5, 6, 7]);
+      const season3 = await getMetadata(baseUrl, 'anilist-730-s3');
+      assert.deepEqual(season3.body.MediaContainer.Metadata[0].Children.Metadata.map((episode) => episode.index), [8, 9, 10]);
+
+      // The special TVDB numbers as absolute 40 is S00.E40, under its own key.
+      const specials = await getMetadata(baseUrl, 'anilist-730-s0');
+      assert.deepEqual(
+        specials.body.MediaContainer.Metadata[0].Children.Metadata.map((episode) => [episode.ratingKey, episode.index]),
+        [['anilist-730-s0-e01', 40]]
+      );
+
+      // A special TVDB counts before season 1 doesn't shift it: files start at S01.E01.
+      const shifted = await getMetadata(baseUrl, 'anilist-740-s1');
+      assert.deepEqual(shifted.body.MediaContainer.Metadata[0].Children.Metadata.map((episode) => episode.index), [1, 2, 3, 4, 5, 6]);
+      const shifted2 = await getMetadata(baseUrl, 'anilist-740-s2');
+      assert.deepEqual(shifted2.body.MediaContainer.Metadata[0].Children.Metadata.map((episode) => episode.index), [7, 8, 9]);
+    }));
+  } finally {
+    if (original === undefined) {
+      delete process.env.FILE_NUMBERING;
+    } else {
+      process.env.FILE_NUMBERING = original;
+    }
     backend.restore();
   }
 });

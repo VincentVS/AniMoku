@@ -92,10 +92,17 @@ router.get('/:id', async (req, res, next) => {
         }
       }
     } else {
-      // TMDB episode keys carry their season; AniList ones are placed via the layout.
-      const placement = provider === 'tmdb'
-        ? (parsed.seasonNumber ? { seasonNumber: parsed.seasonNumber, offset: 0 } : null)
-        : await resolveEpisodePlacement(parsed.rootId, parsed.seasonAnilistId, provider, parsed.episodeNumber);
+      // TMDB episode keys carry their season, and so do TVDB specials (`-s0-eNN`);
+      // AniList ones are placed via the layout.
+      const tvdbSpecial = provider !== 'tmdb' && parsed.seasonNumber === 0;
+      let placement;
+      if (provider === 'tmdb') {
+        placement = parsed.seasonNumber ? { seasonNumber: parsed.seasonNumber, offset: 0 } : null;
+      } else if (tvdbSpecial) {
+        placement = { seasonNumber: 0, seasonMediaId: parsed.rootId, offset: 0 };
+      } else {
+        placement = await resolveEpisodePlacement(parsed.rootId, parsed.seasonAnilistId, provider, parsed.episodeNumber);
+      }
       if (!placement) {
         return res.status(404).json({ error: 'Metadata not found' });
       }
@@ -104,8 +111,13 @@ router.get('/:id', async (req, res, next) => {
       // so refreshing a single episode can't overwrite its real title/summary/date
       // with the bare "Episode NN" placeholder.
       const episodesResult = await getAllEpisodes(provider, parsed.rootId, seasonNumber, placement.seasonMediaId, language);
-      const ratingKey = buildRatingKey('episode', parsed.rootId, parsed.episodeNumber, parsed.seasonAnilistId, provider, seasonNumber);
+      const ratingKey = tvdbSpecial
+        ? parsed.ratingKey
+        : buildRatingKey('episode', parsed.rootId, parsed.episodeNumber, parsed.seasonAnilistId, provider, seasonNumber);
       metadata = episodesResult?.episodes.find((episode) => episode.ratingKey === ratingKey);
+      if (!metadata && tvdbSpecial) {
+        return res.status(404).json({ error: 'Metadata not found' });
+      }
       if (!metadata) {
         const seasonParsed = { ...parsed, seasonNumber };
         const media = await resolveSeasonMedia(provider, seasonParsed, language);

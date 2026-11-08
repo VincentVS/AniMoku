@@ -35,7 +35,7 @@ AniMoku uses the `season.tvdb` and `episode_offset.tvdb` fields of the Fribb cro
 - Entries that share a TVDB season become one Plex season. Their episodes are numbered `offset + AniList episode`.
 - Entries that TVDB files under a different series are left out, because they belong in a different show folder.
 - Entries the crosswalk doesn't map yet, such as a season that has just started airing, follow the last mapped season.
-- Season 0 (TVDB specials) is supported and titled "Specials".
+- Season 0 (TVDB specials) is supported and titled "Specials". With `TVDB_API_KEY` set, a show whose AniList chain fills no season 0 gets TVDB's specials there, numbered as TVDB numbers them (`S00E05`), with titles and summaries in the library language. Their keys carry the season (`anilist-<id>-s0-e05`), so they never collide with a regular episode.
 - A movie, OVA or special joins a regular season only if the crosswalk puts it there. A "Final Chapters" special, for instance, can be TVDB S04E29.
 
 Some long runners are a single AniList entry with hundreds of episodes that the crosswalk maps to no TVDB season, while TVDB splits them into arc seasons. For these, AniMoku reads TMDB's community "TVDB Order" episode group (TMDB credentials needed) and cuts the entry into the same seasons. For example, 366 episodes become seasons 1–16, and a sequel that TVDB files as season 17 stays there. Episodes keep their AniList number in their guid, so watch state survives the regrouping. If your files keep absolute numbers inside season folders (`Show - S02.E21`), set `FILE_NUMBERING=absolute`.
@@ -45,6 +45,8 @@ Without that group, AniMoku reads the seasons from TheTVDB itself when `TVDB_API
 The same TVDB lookup covers an entry the crosswalk files under one season while TVDB splits it over several (13 episodes as seasons 1 and 2, 10 + 3): the entry runs on into the next seasons, as long as no other entry is placed there.
 
 If the matched entry isn't in the crosswalk and none of these sources split it, seasons follow their position in the AniList chain.
+
+With `FILE_NUMBERING=absolute` and `TVDB_API_KEY`, episodes carry TVDB's absolute numbers, which are what Sonarr writes. TVDB counts some specials in them, so a season can start one number later than a plain count: season 2 at 28 after a 26-episode season 1. Numbering always starts at 1 with the first regular episode. A special that TVDB numbers absolutely is indexed by that number (`S00.E202`), as long as it is higher than every special's own number.
 
 ### Absolute episode order
 

@@ -119,13 +119,39 @@ async function resolveSeasonLayout(rootId, order = 'tvdb') {
     });
 
   await annotateParts(seasons, rootMedia);
+  const tvdbId = (await getExternalIds(rootMedia.id)).tvdb || null;
+  const tvdbOrder = aligned && tvdb.isConfigured() ? await tvdb.getSeasonOrder(tvdbId) : null;
+  if (tvdbOrder) {
+    annotateTvdbAbsolute(seasons, tvdbOrder);
+  }
 
   return {
     rootMedia,
     aligned,
     order,
+    tvdbId,
+    // TVDB's specials stand in for a season 0 the AniList chain doesn't fill.
+    tvdbSpecials: Boolean(tvdbOrder?.specials) && !seasons.some((season) => season.seasonNumber === 0),
     seasons: order === 'absolute' ? toAbsoluteSeasons(seasons) : seasons
   };
+}
+
+// Sonarr's absolute numbers are TVDB's, which count some specials too: a season 2 can
+// start at 28 after a 26-episode season 1 (TVDB's absolute 27 is a recap special). A
+// part of a season TVDB numbers gets fileOffset, the TVDB absolute number of its
+// episode 1 minus one, used instead of the plain count when FILE_NUMBERING=absolute.
+// Numbering starts at 1 with the first regular episode whatever TVDB says: a prologue
+// special TVDB counts as absolute 1 doesn't shift season 1 (files run S01.E01-25).
+function annotateTvdbAbsolute(seasons, tvdbOrder) {
+  const shift = tvdbOrder.absoluteOffsets.get(tvdbOrder.seasons[0].seasonNumber) || 0;
+  for (const season of seasons) {
+    const absolute = tvdbOrder.absoluteOffsets.get(season.seasonNumber);
+    if (season.seasonNumber > 0 && absolute !== undefined) {
+      for (const part of season.parts) {
+        part.fileOffset = absolute - shift + part.offset;
+      }
+    }
+  }
 }
 
 // How many episodes an entry has: AniList's count, else (still airing) the airing
@@ -316,8 +342,10 @@ function fileNumbersAreAbsolute() {
 // Added to an entry's own episode number to get its index in the season. Plex pairs
 // files with a season's episodes by index, so with FILE_NUMBERING=absolute a regular
 // season's episodes carry their absolute number (season 2 runs 21-41, not 1-21).
+// TVDB's absolute numbers (fileOffset) are preferred: they are what Sonarr writes.
 function displayOffset(part) {
-  const offset = fileNumbersAreAbsolute() && part.absoluteOffset !== undefined ? part.absoluteOffset : part.offset;
+  const absolute = part.fileOffset ?? part.absoluteOffset;
+  const offset = fileNumbersAreAbsolute() && absolute !== undefined ? absolute : part.offset;
   return offset - (part.start || 0);
 }
 
@@ -424,9 +452,13 @@ async function keepRootSeries(chain, rootMedia) {
 }
 
 // A season key names its first part (`-sN[-a<id>]`); one that no longer matches the
-// layout (e.g. `-s4-a179062` from before TVDB alignment) resolves to nothing.
+// layout (e.g. `-s4-a179062` from before TVDB alignment) resolves to nothing. Season 0
+// of a show whose specials come from TVDB (`-s0`) is a season with no AniList part.
 function findLayoutSeason(layout, rootId, seasonNumber, seasonAnilistId) {
   const season = layout?.seasons.find((entry) => entry.seasonNumber === Number(seasonNumber));
+  if (!season && layout?.tvdbSpecials && Number(seasonNumber) === 0 && Number(seasonAnilistId || rootId) === Number(rootId)) {
+    return { seasonNumber: 0, parts: [{ media: layout.rootMedia, offset: 0 }], tvdbSpecials: true };
+  }
   if (!season || season.parts[0].media.id !== Number(seasonAnilistId || rootId)) {
     return null;
   }
@@ -484,7 +516,17 @@ async function getAllSeasons(provider, rootId, language = DEFAULT_LANGUAGE) {
     provider,
     { poster: posters[index] }
   ));
+  if (layout.tvdbSpecials) {
+    seasons.unshift(mapSeasonMetadata(localizedRoot, 0, localizedRoot, provider));
+  }
   return { rootMedia: layout.rootMedia, seasons };
+}
+
+// With FILE_NUMBERING=absolute, Sonarr names a special TVDB numbers absolutely by that
+// number (a movie as S00.E202), but only one past every special's own number: an
+// absolute 1 for special 2 is still S00.E02, and two files can't share an index.
+function specialFileNumber(special, lastSpecial) {
+  return fileNumbersAreAbsolute() && special.absoluteNumber > lastSpecial ? special.absoluteNumber : special.episodeNumber;
 }
 
 // Shared by routes/grandchildren.js (paginated /grandchildren endpoint) and
@@ -508,6 +550,30 @@ async function getAllEpisodes(provider, rootId, seasonNumber, seasonAnilistId, l
   const season = findLayoutSeason(layout, rootId, seasonNumber, seasonAnilistId);
   if (!season) {
     return null;
+  }
+
+  if (season.tvdbSpecials) {
+    const specials = await tvdb.getSpecials(layout.tvdbId, language);
+    if (!specials.length) {
+      return null;
+    }
+    const { rootMedia } = layout;
+    const lastSpecial = Math.max(...specials.map((special) => special.episodeNumber));
+    return {
+      media: rootMedia,
+      rootMedia,
+      episodes: specials.map((special) => mapEpisodeMetadata(
+        rootMedia,
+        { ...special, parentIndex: 0 },
+        rootMedia,
+        provider,
+        {
+          offset: specialFileNumber(special, lastSpecial) - special.episodeNumber,
+          seasonMediaId: rootMedia.id,
+          tvdbSpecial: true
+        }
+      ))
+    };
   }
 
   const seasonMediaId = season.parts[0].media.id;

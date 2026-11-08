@@ -1,4 +1,6 @@
-const { buildRatingKey, createGuid, SCHEME } = require('./guid');
+const {
+  buildRatingKey, buildSpecialRatingKey, createGuid, SCHEME
+} = require('./guid');
 
 function stripHtml(value = '') {
   return value
@@ -244,7 +246,9 @@ function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = '
   const seasonNumber = Number(episode.parentIndex ?? 1);
   const seasonAnilistId = media.id !== rootMedia.id ? media.id : undefined;
   const seasonMediaId = placement.seasonMediaId ?? media.id;
-  const ratingKey = buildRatingKey('episode', rootMedia.id, episodeNumber, seasonAnilistId, provider, seasonNumber);
+  const ratingKey = placement.tvdbSpecial
+    ? buildSpecialRatingKey(rootMedia.id, episodeNumber, provider)
+    : buildRatingKey('episode', rootMedia.id, episodeNumber, seasonAnilistId, provider, seasonNumber);
   const seasonRatingKey = buildRatingKey(
     'season',
     rootMedia.id,
@@ -264,7 +268,8 @@ function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = '
     key: `/library/metadata/${ratingKey}`,
     guid: createGuid('episode', ratingKey),
     title: episodeTitle,
-    summary: episode.summary || stripHtml(media.description || ''),
+    // A TVDB special is no episode of the AniList entry: its synopsis would mislead.
+    summary: episode.summary || (placement.tvdbSpecial ? '' : stripHtml(media.description || '')),
     originallyAvailableAt: episode.airDate || buildDate(media.startDate),
     year: episode.airDate ? Number(episode.airDate.slice(0, 4)) : media.startDate?.year || null,
     genres: media.genres || [],
@@ -280,7 +285,7 @@ function mapEpisodeMetadata(media, episode = {}, rootMedia = media, provider = '
     grandparentType: 'show',
     grandparentTitle: showTitle,
     index: displayIndex,
-    duration: media.duration ? media.duration * 60 * 1000 : null,
+    duration: (Number(episode.runtime) || media.duration || 0) * 60 * 1000 || null,
     images: imageSet,
     Image: createImageArray(imageSet, episodeTitle)
   };
