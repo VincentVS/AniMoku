@@ -40,7 +40,11 @@ AniMoku uses the `season.tvdb` and `episode_offset.tvdb` fields of the Fribb cro
 
 Some long runners are a single AniList entry with hundreds of episodes that the crosswalk maps to no TVDB season, while TVDB splits them into arc seasons. For these, AniMoku reads TMDB's community "TVDB Order" episode group (TMDB credentials needed) and cuts the entry into the same seasons. For example, 366 episodes become seasons 1–16, and a sequel that TVDB files as season 17 stays there. Episodes keep their AniList number in their guid, so watch state survives the regrouping. If your files keep absolute numbers inside season folders (`Show - S02.E21`), set `FILE_NUMBERING=absolute`.
 
-If the matched entry isn't in the crosswalk and TMDB has no such group, seasons follow their position in the AniList chain.
+Without that group, AniMoku reads the seasons from TheTVDB itself when `TVDB_API_KEY` is set (a 64-episode entry that TMDB keeps as one season and TVDB splits into 16 + 24 + 24). Without a TVDB key, it falls back to TMDB's own seasons, but only for an entry longer than TMDB's season 1: those are often TVDB's split already.
+
+The same TVDB lookup covers an entry the crosswalk files under one season while TVDB splits it over several (13 episodes as seasons 1 and 2, 10 + 3): the entry runs on into the next seasons, as long as no other entry is placed there.
+
+If the matched entry isn't in the crosswalk and none of these sources split it, seasons follow their position in the AniList chain.
 
 ### Absolute episode order
 

@@ -93,6 +93,7 @@ Configuration is done through environment variables. Everything is optional.
 | Variable | What it enables |
 | --- | --- |
 | `TMDB_API_KEY` or `TMDB_ACCESS_TOKEN` | Localised episode titles and summaries, non-anime matching, the TMDB artwork gallery |
+| `TVDB_API_KEY` | TVDB seasons for an entry that only TVDB splits (one AniList entry, several season folders) |
 | `FANART_API_KEY` | Extra posters, backgrounds, clear logos and per-season art |
 | `ANIDB_CLIENT` + `ANIDB_CLIENTVER` | AniDB episode titles in many languages, summaries and air dates |
 | `EPISODE_ORDER` | `tvdb` (default) or `absolute` |

@@ -48,6 +48,9 @@ const CATALOG = {
   710: media(710, { relations: { edges: [{ relationType: 'SEQUEL', node: { id: 711, format: 'TV' } }] } }),
   711: media(711, { episodes: 4, relations: { edges: [{ relationType: 'PREQUEL', node: { id: 710, format: 'TV' } }] } }),
   712: media(712, { format: 'OVA', episodes: 1 }),
+  // One entry each that TMDB keeps as one season and TVDB splits (see TVDB_SERIES).
+  730: media(730),
+  740: media(740),
   720: media(720, { relations: { edges: [{ relationType: 'SEQUEL', node: { id: 721, format: 'TV' } }] } }),
   721: media(721, { episodes: 4, relations: { edges: [{ relationType: 'PREQUEL', node: { id: 720, format: 'TV' } }] } })
 };
@@ -59,6 +62,9 @@ const FRIBB = [
   { anilist_id: 710, type: 'TV', tvdb_id: 810, themoviedb_id: { tv: 910 } },
   { anilist_id: 711, type: 'TV', tvdb_id: 810, themoviedb_id: { tv: 910 }, episode_offset: { tvdb: 9 } },
   { anilist_id: 712, type: 'OVA', tvdb_id: 810, themoviedb_id: { tv: 910 }, season: { tvdb: 0, tmdb: 0 } },
+  // 730 has no season in Fribb; 740 is filed as TVDB season 1, all 9 episodes of it.
+  { anilist_id: 730, type: 'TV', tvdb_id: 830, themoviedb_id: { tv: 930 } },
+  { anilist_id: 740, type: 'TV', tvdb_id: 840, themoviedb_id: { tv: 940 }, season: { tvdb: 1, tmdb: 1 } },
   { anilist_id: 720, type: 'TV', tvdb_id: 820, themoviedb_id: { tv: 920 } },
   { anilist_id: 721, type: 'TV', tvdb_id: 820, themoviedb_id: { tv: 920 }, episode_offset: { tvdb: 9 } }
 ];
@@ -69,8 +75,32 @@ const TMDB_SHOWS = {
   // TMDB's own seasons are TVDB's: 3 + 6 for entry 710, then its sequel.
   910: { tvdb: 810, seasons: { 1: 3, 2: 6, 3: 4 }, tvdbGroup: false },
   // The whole franchise as one TMDB season: no hint of TVDB's split.
-  920: { tvdb: 820, seasons: { 1: 13 }, tvdbGroup: false }
+  920: { tvdb: 820, seasons: { 1: 13 }, tvdbGroup: false },
+  930: { tvdb: 830, seasons: { 1: 9 }, tvdbGroup: false },
+  940: { tvdb: 840, seasons: { 1: 9 }, tvdbGroup: false }
 };
+
+// Episodes per TheTVDB season (TVDB_API_KEY set): where only TVDB splits the entry.
+const TVDB_SERIES = {
+  830: { 0: 1, 1: 3, 2: 3, 3: 3 },
+  840: { 1: 6, 2: 3 }
+};
+
+function tvdbResponse(url) {
+  if (url.pathname === '/v4/login') {
+    return { status: 'success', data: { token: 'tvdb-token' } };
+  }
+  const [, seriesId] = /^\/v4\/series\/(\d+)\/episodes\/default$/.exec(url.pathname) || [];
+  const seasons = TVDB_SERIES[seriesId];
+  if (!seasons) {
+    return null;
+  }
+  const episodes = Object.entries(seasons).flatMap(([seasonNumber, count]) => Array.from(
+    { length: count },
+    (_, index) => ({ seasonNumber: Number(seasonNumber), number: index + 1 })
+  ));
+  return { status: 'success', data: { episodes }, links: { next: null } };
+}
 const TMDB_SEASONS = TMDB_SHOWS[900].seasons;
 
 function tmdbEpisodes(seasonNumber, seasons = TMDB_SEASONS) {
@@ -165,6 +195,13 @@ function installBackend({ search = {} } = {}) {
     if (href.startsWith('https://webservice.fanart.tv/v3/tv/800')) {
       const seasonposter = ['1', '2', '3', '4', 'all'].map((season) => ({ season, url: `https://fanart/s${season}.jpg` }));
       return { ok: true, json: async () => ({ seasonposter }) };
+    }
+    if (href.startsWith('https://api4.thetvdb.com')) {
+      const data = tvdbResponse(new URL(href));
+      if (!data) {
+        throw new Error(`Unexpected TVDB fetch: ${href}`);
+      }
+      return { ok: true, status: 200, json: async () => data };
     }
     if (href.startsWith('https://api.themoviedb.org')) {
       const data = tmdbResponse(new URL(href));
@@ -301,6 +338,53 @@ test('a TVDB id names the first series of a long runner, not its OVA, and its se
     const { findFranchiseRoot } = require('../src/providers/crosswalk');
     assert.equal(await findFranchiseRoot(711), 710);
     assert.equal(await findFranchiseRoot(710), null);
+  } finally {
+    backend.restore();
+  }
+});
+
+async function withTvdb(run) {
+  process.env.TVDB_API_KEY = 'test';
+  try {
+    await run();
+  } finally {
+    delete process.env.TVDB_API_KEY;
+  }
+}
+
+test('an entry TMDB keeps whole is cut by the seasons TheTVDB lists', async () => {
+  const backend = installBackend();
+  try {
+    await withTvdb(() => withServer(async (baseUrl) => {
+      const show = await getMetadata(baseUrl, 'anilist-730');
+      const seasons = show.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(seasons.map((season) => season.ratingKey), ['anilist-730-s1', 'anilist-730-s2', 'anilist-730-s3']);
+
+      const season3 = await getMetadata(baseUrl, 'anilist-730-s3');
+      const episodes = season3.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(episodes.map((episode) => episode.index), [1, 2, 3]);
+      assert.equal(episodes[0].ratingKey.startsWith('anilist-730-e07'), true);
+      // TMDB's single season still gives the titles, by position.
+      assert.equal(episodes[0].title, 'TMDB 1x7');
+    }));
+  } finally {
+    backend.restore();
+  }
+});
+
+test('an entry Fribb files as one season runs on into the next TheTVDB seasons', async () => {
+  const backend = installBackend();
+  try {
+    await withTvdb(() => withServer(async (baseUrl) => {
+      const show = await getMetadata(baseUrl, 'anilist-740');
+      const seasons = show.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(seasons.map((season) => season.ratingKey), ['anilist-740-s1', 'anilist-740-s2']);
+
+      const season2 = await getMetadata(baseUrl, 'anilist-740-s2');
+      const episodes = season2.body.MediaContainer.Metadata[0].Children.Metadata;
+      assert.deepEqual(episodes.map((episode) => episode.index), [1, 2, 3]);
+      assert.equal(episodes[0].ratingKey.startsWith('anilist-740-e07'), true);
+    }));
   } finally {
     backend.restore();
   }

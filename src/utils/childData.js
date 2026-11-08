@@ -1,5 +1,6 @@
 const { resolveSeasonChainWithDetours, getEpisodesPage } = require('../providers/anilist');
 const tmdb = require('../providers/tmdb');
+const tvdb = require('../providers/tvdb');
 const { getTvdbPlacement, getTmdbPlacement, getExternalIds } = require('../providers/crosswalk');
 const { getSeasonPoster } = require('../providers/fanart');
 const anidb = require('../providers/anidb');
@@ -28,8 +29,10 @@ function layoutOrder(provider) {
 // chain is placed where TVDB puts it (season + episode offset): entries TVDB lists
 // under another series are left out (they live in another show folder), and entries
 // not mapped yet (a season that just started airing) are appended as new seasons.
+// An entry with more episodes than TVDB's season has room for runs on into the next
+// seasons (see spillPastTvdbSeason).
 // Without a mapping for the root, seasons follow TMDB's "TVDB Order" episode group
-// when there is one (see placeByTvdbOrder), else chain position.
+// when there is one, else TVDB's own seasons (see placeByTvdbOrder), else chain position.
 // A movie/OVA/special the chain passes through joins the layout only when Fribb puts
 // it in a regular season of the same TVDB series (a "Final Chapters"
 // is S04E29-30); in season 0 or unmapped it stays out, as a separate Plex item.
@@ -57,6 +60,7 @@ async function resolveSeasonLayout(rootId, order = 'tvdb') {
     parts = sameSeries.map(({ media, order, placement }) => (placement
       ? { media, order, seasonNumber: placement.season, offset: placement.episodeOffset }
       : { media, order, seasonNumber: (lastSeason += 1), offset: 0 }));
+    parts = await spillPastTvdbSeason(parts, rootPlacement.tvdbId);
     const [detourPlacements, detourIds] = await Promise.all([
       Promise.all(detours.map((entry) => getTvdbPlacement(entry.id))),
       Promise.all(detours.map((entry) => getExternalIds(entry.id)))
@@ -147,17 +151,19 @@ async function countEpisodes(media) {
 // entry (length null: up to the last one). Entries Fribb does place in a TVDB season
 // (a sequel series filed as season 17) keep that placement; entries with no
 // known position are appended as new seasons.
-// Without such a group, TMDB's own seasons are used instead, but only when the first
+// Without such a group, TheTVDB's own seasons are read directly when TVDB_API_KEY is
+// set (a single TMDB season that TVDB splits in three), positioned in TVDB's episode
+// order instead. Without either, TMDB's own seasons are used, but only when the first
 // entry runs past TMDB season 1: then it is a long runner that chain position would
 // squeeze into one season. A first entry that fits in season 1 keeps chain position, which
 // also covers TMDB listing a whole franchise as one season. Returns null otherwise.
 async function placeByTvdbOrder(chain, placements, rootMedia) {
   const rootIds = await getExternalIds(rootMedia.id);
-  if (!rootIds.tmdb) {
-    return null;
+  let order = rootIds.tmdb ? await tmdb.getTvdbOrder(rootIds.tmdb) : null;
+  if (!order && rootIds.tvdb) {
+    order = await tvdb.getSeasonOrder(rootIds.tvdb);
   }
-  let order = await tmdb.getTvdbOrder(rootIds.tmdb);
-  if (!order) {
+  if (!order && rootIds.tmdb) {
     const [seasonOrder, firstCount] = await Promise.all([tmdb.getSeasonOrder(rootIds.tmdb), countEpisodes(chain[0])]);
     const firstSeason = seasonOrder?.seasons[0];
     if (firstSeason && firstCount > firstSeason.last - firstSeason.first + 1) {
@@ -179,7 +185,7 @@ async function placeByTvdbOrder(chain, placements, rootMedia) {
   chain.forEach((media, index) => {
     const tmdbPlacement = tmdbPlacements[index];
     let start = index === 0 ? 0 : nextStart;
-    if (tmdbPlacement?.tmdbId === rootIds.tmdb && order.seasonStarts.has(tmdbPlacement.season)) {
+    if (tmdbPlacement && tmdbPlacement.tmdbId === rootIds.tmdb && order.seasonStarts.has(tmdbPlacement.season)) {
       start = order.seasonStarts.get(tmdbPlacement.season) + tmdbPlacement.episodeOffset;
     }
     const end = start !== null && counts[index] > 0 ? start + counts[index] : Infinity;
@@ -210,7 +216,8 @@ async function placeByTvdbOrder(chain, placements, rootMedia) {
           offset: from - season.first,
           start: from - start,
           length: to === Infinity ? null : to - from,
-          tmdbBase: start
+          // Positions in TVDB's order are not TMDB's: TMDB offsets are then counted.
+          tmdbBase: order.source === 'tvdb' ? undefined : start
         });
       }
     }
@@ -225,6 +232,48 @@ async function placeByTvdbOrder(chain, placements, rootMedia) {
     parts.push({ media, order: index, seasonNumber: (lastSeasonNumber += 1), offset: 0 });
   });
   return parts.length ? parts : null;
+}
+
+// Fribb files an entry under one TVDB season even when TVDB splits it over several
+// (a 13-episode entry as TVDB seasons 1 and 2, 10 + 3 episodes), and TMDB often keeps
+// it whole too. With TVDB_API_KEY set, such a part is cut where TVDB's season ends
+// and runs on into the next seasons, like placeByTvdbOrder's cuts - only when those
+// seasons exist on TVDB and no other entry is placed there: otherwise the overflow is
+// a counting difference (a recap TVDB lists as a special) and the part stays whole.
+async function spillPastTvdbSeason(parts, tvdbId) {
+  const order = tvdb.isConfigured() ? await tvdb.getSeasonOrder(tvdbId) : null;
+  if (!order) {
+    return parts;
+  }
+  const lengths = new Map(order.seasons.map((season) => [season.seasonNumber, season.last - season.first + 1]));
+  const lastSeason = order.seasons[order.seasons.length - 1].seasonNumber;
+  const claimed = new Set(parts.map((part) => part.seasonNumber));
+  const counts = await Promise.all(parts.map((part) => countEpisodes(part.media)));
+
+  return parts.flatMap((part, index) => {
+    const count = counts[index];
+    if (!(part.seasonNumber > 0) || !lengths.has(part.seasonNumber) || count <= lengths.get(part.seasonNumber) - part.offset) {
+      return [part];
+    }
+    const pieces = [];
+    let seasonNumber = part.seasonNumber;
+    let offset = part.offset;
+    let start = 0;
+    while (start < count) {
+      if (pieces.length && (claimed.has(seasonNumber) || !lengths.has(seasonNumber))) {
+        return [part];
+      }
+      const room = seasonNumber === lastSeason ? Infinity : lengths.get(seasonNumber) - offset;
+      const take = Math.min(room, count - start);
+      pieces.push({
+        ...part, seasonNumber, offset, start, length: start + take >= count ? null : take
+      });
+      start += take;
+      seasonNumber += 1;
+      offset = 0;
+    }
+    return pieces;
+  });
 }
 
 // The seasons cut by the TVDB-order group come from TVDB itself, while a sequel's

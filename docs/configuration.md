@@ -10,6 +10,8 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 | --- | --- | --- |
 | `TMDB_API_KEY` | – | TMDB v3 API key. Enables localised episode titles and summaries, matching of non-anime shows, and the TMDB artwork gallery. Free at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). |
 | `TMDB_ACCESS_TOKEN` | – | TMDB v4 read access token. Same access as the API key; set either one. Takes priority when both are set. |
+| `TVDB_API_KEY` | – | TheTVDB v4 API key (project or user key). Used only to read how TVDB splits a series into seasons, when neither the crosswalk nor TMDB tell: a single AniList entry that TVDB splits into several seasons. Get one at [thetvdb.com/api-information](https://thetvdb.com/api-information). |
+| `TVDB_PIN` | – | Subscriber PIN, needed only with a user-supported TVDB key. |
 | `FANART_API_KEY` | – | Personal Fanart.tv key, for extra posters, backgrounds, clear logos and season art. Free at [fanart.tv/get-an-api-key](https://fanart.tv/get-an-api-key/). |
 | `ANIDB_CLIENT` | – | Name of your registered AniDB HTTP client. Register one (free) at [anidb.net/software/add](https://anidb.net/software/add). |
 | `ANIDB_CLIENTVER` | – | Version of that client. Both values are needed to enable AniDB. |
@@ -30,7 +32,7 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `METADATA_CACHE_TTL_SECONDS` | `600` | How long AniList, TMDB and Fanart.tv responses stay in the in-memory cache. `0` disables it. |
+| `METADATA_CACHE_TTL_SECONDS` | `600` | How long AniList, TMDB, TVDB and Fanart.tv responses stay in the in-memory cache. `0` disables it. |
 | `ANILIST_MIN_INTERVAL_MS` | `2000` | Minimum gap between AniList requests (about 30 per minute, AniList's limit when degraded). |
 | `ANILIST_MAX_RETRY_WAIT_SECONDS` | `30` | Longest `Retry-After` AniList waits out. A longer one starts a cooldown during which AniList calls fail fast. |
 | `ANIDB_MIN_INTERVAL_SECONDS` | `4` | Seconds between AniDB requests (minimum 2, AniDB's own limit). |
