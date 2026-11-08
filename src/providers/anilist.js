@@ -256,9 +256,9 @@ function isSeasonCandidate(node) {
   return Boolean(node) && SEASON_FORMATS.has(node.format);
 }
 
-// Formats a franchise's continuity can pass through between two TV seasons. Demon
-// Slayer is the textbook case: season 1's SEQUEL is the Mugen Train *movie*, and only
-// the movie's SEQUEL is the Mugen Train Arc TV season (TVDB season 2) - stopping at
+// Formats a franchise's continuity can pass through between two TV seasons. The
+// textbook case: season 1's SEQUEL is a *movie*, and only the movie's SEQUEL is the
+// TV arc retelling it (TVDB season 2) - stopping at
 // the first non-TV node would cut the franchise off after season 1.
 const PASS_THROUGH_FORMATS = new Set([...SEASON_FORMATS, 'MOVIE', 'OVA', 'SPECIAL']);
 
@@ -333,7 +333,7 @@ const AIRING_SCHEDULE_PAGE_SIZE = 50;
 const MAX_AIRING_SCHEDULE_PAGES = 100;
 
 // AniList silently caps perPage at 50, so a long-running show with no fixed episode
-// count (One Piece, Detective Conan...) has to be walked page by page - a single
+// count (1000+ episode long runners) has to be walked page by page - a single
 // request would cut its season off at episode 50.
 async function getAiringSchedules(mediaId) {
   return mediaCache.wrap(`airing:${Number(mediaId)}`, async () => {
@@ -409,7 +409,7 @@ async function getEpisodesPage(id, start = 0, size = 50) {
     }
   });
 
-  // Some entries carry another season's Crunchyroll list (Gintama' Enchousen, 13
+  // Some entries carry another season's Crunchyroll list (a 13
   // episodes, lists the 49 of a different season): an episode numbered past this
   // entry's own count gives that away, and then none of its titles can be trusted.
   const maxStreamingNumber = Math.max(0, ...streamingEpisodesByNumber.keys());
@@ -445,15 +445,15 @@ async function getEpisodesPage(id, start = 0, size = 50) {
 
 // Score against every title AniList exposes (english/romaji/native), not just the one
 // preferred by TITLE_LANGUAGE_ORDER. Anime release filenames are frequently romaji
-// (e.g. "Enen no Shouboutai") while the default preferred title is English ("Fire
+// (e.g. "Honoo no Shoubou") while the default preferred title is English ("Flame
 // Force") - scoring against resolveTitle() alone means the correct entry never gets an
 // exact-match bonus in that case, letting an unrelated entry whose *resolved* title
 // happens to match the search term outrank it.
 //
 // Titles are compared after folding case, accents and punctuation, since folder names
-// and release filenames rarely keep them: "Re Zero", "Kaguya sama Love is War" and
-// "Shingeki no Kyojin" must still hit "Re:Zero", "Kaguya-sama: Love is War" and
-// "Shingeki no Kyojin" exactly. AniList synonyms count as titles too.
+// and release filenames rarely keep them: "Re Start", "Ojou sama Love Duel" and
+// "Shio no Kiseki" must still hit "Re:Start", "Ojou-sama: Love Duel" and
+// "Shio no Kiseki" exactly. AniList synonyms count as titles too.
 function foldTitle(value) {
   return String(value || '')
     .normalize('NFKD')

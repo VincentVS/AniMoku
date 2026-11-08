@@ -43,11 +43,11 @@ function edge(relationType, node) {
 const FRIBB = [
   { anilist_id: 20958, anidb_id: 10944, tvdb_id: 267440, season: { tvdb: 2 } },
   { anilist_id: 16498, anidb_id: 9541, tvdb_id: 267440, season: { tvdb: 1 } },
-  // A franchise whose sequel is the better title match (Mushoku Tensei II).
+  // A franchise whose sequel is the better title match (a "II" sequel title).
   { anilist_id: 50001, tvdb_id: 900001, season: { tvdb: 1 } },
   { anilist_id: 50002, tvdb_id: 900001, season: { tvdb: 2 } },
-  // Naruto -> Shippuden -> Boruto: three TVDB series with no season mapping, plus a
-  // one-shot Fribb knows but TVDB doesn't list (One Piece's "MONSTERS").
+  // A series -> its sequel series -> a successor series: three TVDB series with no
+  // season mapping, plus a one-shot Fribb knows but TVDB doesn't list.
   { anilist_id: 60001, tvdb_id: 900010 },
   { anilist_id: 60002, tvdb_id: 900011 },
   { anilist_id: 60003, tvdb_id: 900012 },
@@ -107,20 +107,20 @@ function postMatch(baseUrl, body) {
 
 test('filename parser handles real-world fansub and scene release names', () => {
   const cases = [
-    ['[SubsPlease] Jujutsu Kaisen - 01 (1080p) [ABCD1234].mkv', 'Jujutsu Kaisen', null, 1, 'absolute'],
+    ['[SubsPlease] Cursed Academy - 01 (1080p) [ABCD1234].mkv', 'Cursed Academy', null, 1, 'absolute'],
     ['Example.Anime.S01E03.1080p.WEB.x264-GROUP.mkv', 'Example Anime', 1, 3, 'season-episode'],
     // Numbers that belong to the title must not be read as the episode.
-    ['Mob Psycho 100 - 05.mkv', 'Mob Psycho 100', null, 5, 'absolute'],
-    ['86 - 01.mkv', '86', null, 1, 'absolute'],
-    ['One Piece - 1071.mkv', 'One Piece', null, 1071, 'absolute'],
-    ['Frieren - 05v2.mkv', 'Frieren', null, 5, 'absolute'],
+    ['Psychic Squad 100 - 05.mkv', 'Psychic Squad 100', null, 5, 'absolute'],
+    ['42 - 01.mkv', '42', null, 1, 'absolute'],
+    ['Grand Voyage - 1071.mkv', 'Grand Voyage', null, 1071, 'absolute'],
+    ['Wanderer - 05v2.mkv', 'Wanderer', null, 5, 'absolute'],
     ['Show S2 - 05.mkv', 'Show', 2, 5, 'season-absolute'],
     ['Show 2nd Season - 05.mkv', 'Show', 2, 5, 'season-absolute'],
     ['Show EP05.mkv', 'Show', null, 5, 'absolute'],
     ['Show 1x05.mkv', 'Show', 1, 5, 'season-episode'],
     ['Show - S01E05 - Episode Title.mkv', 'Show', 1, 5, 'season-episode'],
     // No title in the file name: the show folder (not "Season 01") supplies it.
-    ['/Kaguya-sama (2019)/Season 01/S01E02.mkv', 'Kaguya-sama', 1, 2, 'season-episode']
+    ['/Ojou-sama (2019)/Season 01/S01E02.mkv', 'Ojou-sama', 1, 2, 'season-episode']
   ];
 
   for (const [filename, title, seasonNumber, episodeNumber, pattern] of cases) {
@@ -134,21 +134,21 @@ test('filename parser handles real-world fansub and scene release names', () => 
 });
 
 test('match score ignores punctuation/case, counts synonyms, and weighs year and format', () => {
-  const reZero = media(1, {
-    title: { english: 'Re:ZERO -Starting Life in Another World-', romaji: 'Re:Zero kara Hajimeru Isekai Seikatsu', native: null },
-    synonyms: ['ReZero'],
+  const reStart = media(1, {
+    title: { english: 'Re:START -Living in Another World-', romaji: 'Re:Start kara Hajimeru Isekai Seikatsu', native: null },
+    synonyms: ['ReStart'],
     startDate: { year: 2016 }
   });
-  assert.equal(createMatchScore(reZero, 're zero kara hajimeru isekai seikatsu'), 100);
-  assert.equal(createMatchScore(reZero, 'ReZero'), 100);
-  assert.equal(createMatchScore(reZero, 'Re:Zero kara Hajimeru Isekai Seikatsu', {}, { year: 2016 }), 100);
-  assert.equal(createMatchScore(reZero, 'Re:Zero kara Hajimeru Isekai Seikatsu', {}, { year: 2001 }), 90);
+  assert.equal(createMatchScore(reStart, 're start kara hajimeru isekai seikatsu'), 100);
+  assert.equal(createMatchScore(reStart, 'ReStart'), 100);
+  assert.equal(createMatchScore(reStart, 'Re:Start kara Hajimeru Isekai Seikatsu', {}, { year: 2016 }), 100);
+  assert.equal(createMatchScore(reStart, 'Re:Start kara Hajimeru Isekai Seikatsu', {}, { year: 2001 }), 90);
 
-  const movie = media(2, { title: { english: 'Re:Zero kara Hajimeru Isekai Seikatsu', romaji: null, native: null }, format: 'MOVIE' });
-  assert.ok(createMatchScore(movie, 'Re:Zero kara Hajimeru Isekai Seikatsu') < createMatchScore(reZero, 'Re:Zero kara Hajimeru Isekai Seikatsu'));
+  const movie = media(2, { title: { english: 'Re:Start kara Hajimeru Isekai Seikatsu', romaji: null, native: null }, format: 'MOVIE' });
+  assert.ok(createMatchScore(movie, 'Re:Start kara Hajimeru Isekai Seikatsu') < createMatchScore(reStart, 'Re:Start kara Hajimeru Isekai Seikatsu'));
 
   // A short synonym must not match inside an unrelated word.
-  const aot = media(3, { title: { english: 'Attack on Titan', romaji: null, native: null }, synonyms: ['AoT'] });
+  const aot = media(3, { title: { english: 'Arc of Tides', romaji: null, native: null }, synonyms: ['AoT'] });
   assert.equal(createMatchScore(aot, 'Chaotic Days'), 60);
 });
 
@@ -247,8 +247,8 @@ test('/matches refuses weak automatic matches but still lists them for a manual 
 });
 
 test('/matches resolves guid hints and folder id tags without a title search', async () => {
-  const aotSeason1 = media(16498, { title: { english: 'Attack on Titan', romaji: 'Shingeki no Kyojin', native: null } });
-  const aotSeason2 = media(20958, { title: { english: 'Attack on Titan Season 2', romaji: null, native: null } });
+  const aotSeason1 = media(16498, { title: { english: 'Arc of Tides', romaji: 'Shio no Kiseki', native: null } });
+  const aotSeason2 = media(20958, { title: { english: 'Arc of Tides Season 2', romaji: null, native: null } });
   const backend = installBackend({
     catalog: { 16498: aotSeason1, 20958: aotSeason2 }
   });
@@ -266,9 +266,9 @@ test('/matches resolves guid hints and folder id tags without a title search', a
       assert.equal(byOwnGuid.body.MediaContainer.Metadata[0].ratingKey, 'anilist-20958');
 
       // A HAMA-style folder tag on the first scan, when Plex sends no guid yet.
-      const byTag = await postMatch(baseUrl, { type: 2, title: 'Shingeki no Kyojin [anidb-9541]' });
+      const byTag = await postMatch(baseUrl, { type: 2, title: 'Shio no Kiseki [anidb-9541]' });
       assert.equal(byTag.body.MediaContainer.Metadata[0].ratingKey, 'anilist-16498');
-      const byPathTag = await postMatch(baseUrl, { type: 2, title: 'Attack on Titan', filename: '/Attack on Titan {anilist-20958}/S01E01.mkv' });
+      const byPathTag = await postMatch(baseUrl, { type: 2, title: 'Arc of Tides', filename: '/Arc of Tides {anilist-20958}/S01E01.mkv' });
       assert.equal(byPathTag.body.MediaContainer.Metadata[0].ratingKey, 'anilist-20958');
     });
     assert.equal(backend.calls.search.length, 0);
@@ -292,7 +292,7 @@ test('automatic AniList searches hide adult entries unless Plex passes includeAd
 });
 
 test('the season chain follows a franchise through a movie between two TV seasons', async () => {
-  // Demon Slayer: season 1 -> Mugen Train (MOVIE) -> Mugen Train Arc (TV).
+  // Season 1 -> a movie (MOVIE) -> the movie's story retold as a TV arc.
   const season1 = media(101922, { relations: { edges: [edge('SEQUEL', { id: 112151, format: 'MOVIE' })] } });
   const movie = media(112151, {
     format: 'MOVIE',
@@ -318,31 +318,31 @@ test('the season chain follows a franchise through a movie between two TV season
 
 test('a show matched through a sequel title is keyed on the franchise first season', async () => {
   const season1 = media(50001, {
-    title: { english: 'Jobless Reincarnation', romaji: 'Mushoku Tensei', native: null },
+    title: { english: 'Reborn Traveller', romaji: 'Tensei Ryokou', native: null },
     relations: { edges: [edge('SEQUEL', { id: 50002, format: 'TV' })] }
   });
   const season2 = media(50002, {
-    title: { english: 'Jobless Reincarnation Season 2', romaji: 'Mushoku Tensei II', native: null },
+    title: { english: 'Reborn Traveller Season 2', romaji: 'Tensei Ryokou II', native: null },
     startDate: { year: 2023, month: 7, day: 1 },
     relations: { edges: [edge('PREQUEL', { id: 50001, format: 'TV' })] }
   });
   const backend = installBackend({
     catalog: { 50001: season1, 50002: season2 },
-    search: { 'Mushoku Tensei II': [50002, 50001] }
+    search: { 'Tensei Ryokou II': [50002, 50001] }
   });
 
   try {
     await withServer(async (baseUrl) => {
-      const auto = await postMatch(baseUrl, { type: 2, title: 'Mushoku Tensei II' });
+      const auto = await postMatch(baseUrl, { type: 2, title: 'Tensei Ryokou II' });
       assert.equal(auto.body.MediaContainer.Metadata[0].ratingKey, 'anilist-50001');
-      assert.equal(auto.body.MediaContainer.Metadata[0].title, 'Jobless Reincarnation');
+      assert.equal(auto.body.MediaContainer.Metadata[0].title, 'Reborn Traveller');
 
       // Both seasons collapse onto the same show in a manual Fix Match list.
-      const manual = await postMatch(baseUrl, { type: 2, title: 'Mushoku Tensei II', manual: 1 });
+      const manual = await postMatch(baseUrl, { type: 2, title: 'Tensei Ryokou II', manual: 1 });
       assert.deepEqual(manual.body.MediaContainer.Metadata.map((show) => show.ratingKey), ['anilist-50001']);
 
       // An explicit id tag is never re-keyed.
-      const tagged = await postMatch(baseUrl, { type: 2, title: 'Mushoku Tensei II [anilist-50002]' });
+      const tagged = await postMatch(baseUrl, { type: 2, title: 'Tensei Ryokou II [anilist-50002]' });
       assert.equal(tagged.body.MediaContainer.Metadata[0].ratingKey, 'anilist-50002');
     });
   } finally {
@@ -351,20 +351,20 @@ test('a show matched through a sequel title is keyed on the franchise first seas
 });
 
 test('the season layout keeps only the root TVDB series and puts undated seasons last', async () => {
-  const naruto = media(60001, {
+  const series = media(60001, {
     startDate: { year: 2002, month: 10, day: 3 },
     relations: { edges: [edge('SEQUEL', { id: 60002, format: 'TV' })] }
   });
-  const shippuden = media(60002, {
+  const sequelSeries = media(60002, {
     startDate: { year: 2007, month: 2, day: 15 },
     relations: { edges: [edge('PREQUEL', { id: 60001, format: 'TV' }), edge('SEQUEL', { id: 60003, format: 'TV' })] }
   });
-  const boruto = media(60003, {
+  const successor = media(60003, {
     startDate: { year: 2017, month: 4, day: 5 },
     relations: { edges: [edge('PREQUEL', { id: 60002, format: 'TV' }), edge('SEQUEL', { id: 60004, format: 'TV' })] }
   });
-  // Announced, no start date, not in Fribb yet: it continues Boruto, not Shippuden.
-  const borutoPart2 = media(60004, {
+  // Announced, no start date, not in Fribb yet: it continues the successor, not the sequel.
+  const successorPart2 = media(60004, {
     startDate: { year: null },
     relations: { edges: [edge('PREQUEL', { id: 60003, format: 'TV' })] }
   });
@@ -375,7 +375,7 @@ test('the season layout keeps only the root TVDB series and puts undated seasons
     relations: { edges: [edge('PREQUEL', { id: 70001, format: 'TV' })] }
   });
   const backend = installBackend({
-    catalog: { 60001: naruto, 60002: shippuden, 60003: boruto, 60004: borutoPart2, 70001: unmapped, 70002: unmappedSequel }
+    catalog: { 60001: series, 60002: sequelSeries, 60003: successor, 60004: successorPart2, 70001: unmapped, 70002: unmappedSequel }
   });
 
   const seasonKeys = (baseUrl, key) => httpFetch(`${baseUrl}/library/metadata/${key}/children`)
@@ -394,7 +394,7 @@ test('the season layout keeps only the root TVDB series and puts undated seasons
 });
 
 test('the season layout drops a chain entry Fribb places outside TVDB', async () => {
-  const onePiece = media(60010, {
+  const longRunner = media(60010, {
     episodes: null,
     relations: { edges: [edge('PREQUEL', { id: 60009, format: 'ONA' })] }
   });
@@ -404,7 +404,7 @@ test('the season layout drops a chain entry Fribb places outside TVDB', async ()
     startDate: { year: 2024, month: 1, day: 21 },
     relations: { edges: [edge('SEQUEL', { id: 60010, format: 'TV' })] }
   });
-  const backend = installBackend({ catalog: { 60009: oneShot, 60010: onePiece } });
+  const backend = installBackend({ catalog: { 60009: oneShot, 60010: longRunner } });
 
   try {
     await withServer(async (baseUrl) => {

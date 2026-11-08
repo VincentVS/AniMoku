@@ -10,6 +10,8 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 | --- | --- | --- |
 | `TMDB_API_KEY` | – | TMDB v3 API key. Enables localised episode titles and summaries, matching of non-anime shows, and the TMDB artwork gallery. Free at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). |
 | `TMDB_ACCESS_TOKEN` | – | TMDB v4 read access token. Same access as the API key; set either one. Takes priority when both are set. |
+| `TVDB_API_KEY` | – | TheTVDB v4 API key (project or user key). Reads from TVDB how it splits a series into seasons when neither the crosswalk nor TMDB tell (a single AniList entry that TVDB splits into several seasons), its specials for season 0, and its absolute numbers for `FILE_NUMBERING=absolute`. Get one at [thetvdb.com/api-information](https://thetvdb.com/api-information). |
+| `TVDB_PIN` | – | Subscriber PIN, needed only with a user-supported TVDB key. |
 | `FANART_API_KEY` | – | Personal Fanart.tv key, for extra posters, backgrounds, clear logos and season art. Free at [fanart.tv/get-an-api-key](https://fanart.tv/get-an-api-key/). |
 | `ANIDB_CLIENT` | – | Name of your registered AniDB HTTP client. Register one (free) at [anidb.net/software/add](https://anidb.net/software/add). |
 | `ANIDB_CLIENTVER` | – | Version of that client. Both values are needed to enable AniDB. |
@@ -19,7 +21,10 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 | Variable | Default | Description |
 | --- | --- | --- |
 | `EPISODE_ORDER` | `tvdb` | `tvdb` numbers seasons as TVDB, Sonarr and Jellyfin do (`S03E13`). `absolute` puts every regular episode in season 1 (`S01E103`). See [Absolute episode order](how-it-works.md#absolute-episode-order). |
-| `TITLE_LANGUAGE_ORDER` | `english,romaji,native` | Priority of AniList's three title fields for show titles. Keys you omit are appended in default order. AniList has no other languages. |
+| `FILE_NUMBERING` | – | Set to `absolute` when your files carry absolute episode numbers inside season folders (Sonarr's `S02.E21` with `{absolute}` as the episode). An index that could be either season-relative or absolute is then read as absolute. With `TVDB_API_KEY`, the absolute numbers are TVDB's, the ones Sonarr writes, including the numbers TVDB gives to specials. Unset, it's read as season-relative; an index past the season's end is read as absolute either way. |
+| `MATCH_LABEL_SOURCE` | `false` | Set to `true` to label each **Fix Match** result with its provider and format (`Show [AniList · TV]`), to tell apart candidates listed under the same name. |
+| `MATCH_LABEL_EPISODES` | `false` | Set to `true` to label each **Fix Match** result with its episode count (`Show [24 ep]`; with `MATCH_LABEL_SOURCE` too, `Show [AniList · TV · 24 ep]`). |
+| `TITLE_LANGUAGE_ORDER` | `localized,english,romaji,native` | Priority of the title fields for show titles. `english`, `romaji` and `native` are AniList's. `localized` is the title in the library language, taken from TMDB's translations (needs TMDB credentials, only for non-English libraries); the show's synopsis is translated too when TMDB has one. Keys you omit are appended in default order, so a list without `localized` puts it last. |
 | `LOG_LEVEL` | `info` | pino log level: `trace`, `debug`, `info`, `warn`, `error` or `fatal`. |
 | `PORT` | `3000` | HTTP port inside the container. |
 
@@ -27,7 +32,7 @@ AniMoku is configured entirely through environment variables. With Docker Compos
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `METADATA_CACHE_TTL_SECONDS` | `600` | How long AniList, TMDB and Fanart.tv responses stay in the in-memory cache. `0` disables it. |
+| `METADATA_CACHE_TTL_SECONDS` | `600` | How long AniList, TMDB, TVDB and Fanart.tv responses stay in the in-memory cache. `0` disables it. |
 | `ANILIST_MIN_INTERVAL_MS` | `2000` | Minimum gap between AniList requests (about 30 per minute, AniList's limit when degraded). |
 | `ANILIST_MAX_RETRY_WAIT_SECONDS` | `30` | Longest `Retry-After` AniList waits out. A longer one starts a cooldown during which AniList calls fail fast. |
 | `ANIDB_MIN_INTERVAL_SECONDS` | `4` | Seconds between AniDB requests (minimum 2, AniDB's own limit). |
@@ -102,7 +107,7 @@ docker exec -it <plex_container> curl -s http://animoku:3000/health
 2. Plex reads `GET /` and lists the agent as **AniMoku**.
 3. In each anime library, choose the agent under **Edit library → Advanced**, then run **Refresh All Metadata**.
 
-The provider identifier is `tv.plex.agents.custom.animoku`. Guids look like `tv.plex.agents.custom.animoku://show/anilist-15125`. The identifier never changes, so existing matches survive upgrades.
+The provider identifier is `tv.plex.agents.custom.animoku`. Guids look like `tv.plex.agents.custom.animoku://show/anilist-12345`. The identifier never changes, so existing matches survive upgrades.
 
 ## Folder name tags
 
@@ -110,8 +115,8 @@ Tags in a show's folder name steer matching, following the convention used by HA
 
 | Tag | Effect |
 | --- | --- |
-| `{anilist-154587}` | Match this AniList entry directly |
-| `{tvdb-267440}`, `{anidb-9541}`, `{mal-5114}`, `{imdb-tt0944947}`, `{tmdb-1429}` | Map the id to AniList through the Fribb crosswalk. A TMDB id with no anime mapping is served from TMDB. |
+| `{anilist-12345}` | Match this AniList entry directly |
+| `{tvdb-123456}`, `{anidb-1234}`, `{mal-1234}`, `{imdb-tt1234567}`, `{tmdb-1234}` | Map the id to AniList through the Fribb crosswalk. A TMDB id with no anime mapping is served from TMDB. |
 | `[absolute]` | Use the absolute episode order for this show |
 | `[tvdb]` | Use the TVDB order for this show when `EPISODE_ORDER=absolute` |
 

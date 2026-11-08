@@ -2,7 +2,7 @@ const tmdb = require('../providers/tmdb');
 const anidb = require('../providers/anidb');
 
 // AniList knows which episodes exist and how a franchise is split, but has a title
-// for only a fraction of them (One Piece: 69 of 1100+) and no per-episode summary.
+// for only a fraction of them (a 1100+ episode long runner has fewer than 70) and no per-episode summary.
 // So, like Jellyfin's TheMovieDb > AniDB episode order and HAMA's AniDB episode
 // lists, each AniList episode is looked up in:
 //   - TMDB, by its franchise-absolute position in the show's regular episodes

@@ -31,9 +31,9 @@ The rating key prefix tells AniMoku which backend to use. Plex treats keys as op
 
 | Type | AniList (TVDB order) | AniList (absolute order) | TMDB |
 | --- | --- | --- | --- |
-| Show | `anilist-15125` | `anilistabs-15125` | `tmdb-60625` |
-| Season | `anilist-15125-s2-a20000` | `anilistabs-15125-s1` | `tmdb-60625-s2` |
-| Episode | `anilist-15125-e05-a20000` | `anilistabs-15125-e05-a20000` | `tmdb-60625-s2-e05` |
+| Show | `anilist-12345` | `anilistabs-12345` | `tmdb-1234` |
+| Season | `anilist-12345-s2-a20000` | `anilistabs-12345-s1` | `tmdb-1234-s2` |
+| Episode | `anilist-12345-e05-a20000` | `anilistabs-12345-e05-a20000` | `tmdb-1234-s2-e05` |
 
 - `-a<id>` names the AniList entry behind a season or episode when it differs from the show's root entry. A single-season show has no suffix.
 - AniList episode keys carry their AniList entry and episode number, not the displayed season. So guids, and with them watch state, survive renumbering: `anilist-105310-e01-a179062` is displayed as S03E13.
@@ -48,15 +48,15 @@ Guids are `tv.plex.agents.custom.animoku://<type>/<ratingKey>`.
 curl http://localhost:3000/
 
 # Show, with seasons embedded
-curl "http://localhost:3000/library/metadata/anilist-15125?includeChildren=1"
+curl "http://localhost:3000/library/metadata/anilist-12345?includeChildren=1"
 
 # Episodes of a season, in Italian where available
-curl -H "X-Plex-Language: it-IT" http://localhost:3000/library/metadata/anilist-15125-s1/children
+curl -H "X-Plex-Language: it-IT" http://localhost:3000/library/metadata/anilist-12345-s1/children
 
 # Automatic match from a filename
 curl -X POST http://localhost:3000/library/metadata/matches \
   -H "Content-Type: application/json" \
-  -d '{"type": 2, "title": "Fullmetal Alchemist Brotherhood", "filename": "[Group] Fullmetal Alchemist Brotherhood - 05 [1080p].mkv"}'
+  -d '{"type": 2, "title": "Example Show", "filename": "[Group] Example Show - 05 [1080p].mkv"}'
 ```
 
 A match response looks like this (trimmed):
@@ -68,9 +68,9 @@ A match response looks like this (trimmed):
     "Metadata": [
       {
         "type": "show",
-        "ratingKey": "anilist-5114",
-        "guid": "tv.plex.agents.custom.animoku://show/anilist-5114",
-        "title": "Fullmetal Alchemist: Brotherhood",
+        "ratingKey": "anilist-12345",
+        "guid": "tv.plex.agents.custom.animoku://show/anilist-12345",
+        "title": "Example Show",
         "year": 2009,
         "score": 100
       }

@@ -68,6 +68,13 @@ function buildRatingKey(type, rootId, index, seasonAnilistId, provider = DEFAULT
   return `${baseKey}${seasonSegment}-e${String(Number(index || 1)).padStart(2, '0')}${seasonSuffix}`;
 }
 
+// A TVDB special (season 0 from TheTVDB, no AniList entry behind it): the season is in
+// the key, `anilist-<root>-s0-eNN`, so it never collides with the root's episode NN.
+function buildSpecialRatingKey(rootId, episodeNumber, provider = DEFAULT_PROVIDER) {
+  const showKey = buildRatingKey('show', rootId, undefined, undefined, provider);
+  return `${showKey}-s0-e${String(Number(episodeNumber)).padStart(2, '0')}`;
+}
+
 function createGuid(type, ratingKey) {
   return `${SCHEME}://${normalizeType(type)}/${ratingKey}`;
 }
@@ -135,6 +142,7 @@ module.exports = {
   ABSOLUTE_PROVIDER,
   isAbsoluteOrder,
   buildRatingKey,
+  buildSpecialRatingKey,
   createGuid,
   parseRatingKey
 };
